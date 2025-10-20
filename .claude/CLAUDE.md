@@ -22,10 +22,12 @@ pnpm dev  # Runs dev server on port 4444 with Turbopack
 ```bash
 pnpm build              # Build Next.js app
 pnpm lint               # Run ESLint
-pnpm deploy             # Build and deploy to Cloudflare
+pnpm run deploy         # Build and deploy to Cloudflare
 pnpm preview            # Build and preview on Cloudflare locally
 pnpm cf-typegen         # Generate Cloudflare environment types
 ```
+
+**Important**: Before your first deployment, you must run `pnpm cf-typegen` to generate the `cloudflare-env.d.ts` file. This file is required for TypeScript compilation and is referenced in `tsconfig.json`. Regenerate this file whenever you modify Cloudflare bindings in `wrangler.jsonc`.
 
 ### Code Quality
 - **Pre-commit hooks**: Husky + lint-staged automatically runs ESLint and Prettier on staged files
@@ -60,6 +62,7 @@ src/
 
 - **next.config.ts**: Initialized with OpenNext Cloudflare dev mode via `initOpenNextCloudflareForDev()`
 - **open-next.config.ts**: Cloudflare-specific OpenNext configuration (R2 cache commented out)
+- **wrangler.jsonc**: Cloudflare Workers configuration with comprehensive inline documentation
 - **components.json**: shadcn/ui config - use `@/` path aliases for imports
 - **tsconfig.json**: Path alias `@/*` maps to `./src/*`, includes Cloudflare env types
 

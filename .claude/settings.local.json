@@ -11,7 +11,8 @@
       "WebFetch(domain:neon.com)",
       "Bash(pnpm add drizzle-orm @neondatabase/serverless)",
       "Bash(pnpm add -D drizzle-kit)",
-      "Bash(pnpm add -D drizzle-kit postgres dotenv tsx)"
+      "Bash(pnpm add -D drizzle-kit postgres dotenv tsx)",
+      "Bash(git add -A)"
     ],
     "deny": [],
     "ask": []

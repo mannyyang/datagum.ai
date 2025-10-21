@@ -23,3 +23,5 @@ DATABASE_URL=postgresql://user:password@ep-xxx-xxx.region.aws.neon.tech/neondb?s
 
 # Note: Unlike traditional Next.js, you don't need separate .env.local
 # All env vars go here and are accessible server-side via Cloudflare env
+
+OPENAI_API_KEY=your-openai-api-key-here

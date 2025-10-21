@@ -110,6 +110,115 @@ Unlike traditional Next.js, this project doesn't use `.env.local` because:
 - `.dev.vars` provides a unified approach for local and production environments
 - All Cloudflare bindings (KV, R2, D1) are accessed the same way
 
+## Database (Neon + Drizzle ORM)
+
+This project uses **Neon PostgreSQL** with **Drizzle ORM** for database operations. Neon is serverless Postgres optimized for edge environments like Cloudflare Workers.
+
+### Quick Start
+
+1. **Get your Neon connection string**:
+   - Sign up at [console.neon.tech](https://console.neon.tech)
+   - Create a new project
+   - Copy your connection string
+
+2. **Configure locally**:
+   ```bash
+   # Copy .dev.vars.example to .dev.vars
+   cp .dev.vars.example .dev.vars
+
+   # Edit .dev.vars and add your DATABASE_URL
+   # DATABASE_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb
+   ```
+
+3. **Push schema to database**:
+   ```bash
+   pnpm db:push
+   ```
+
+4. **Test the connection**:
+   ```bash
+   pnpm dev
+   # Visit http://localhost:4444/api/db-test
+   ```
+
+### Database Commands
+
+```bash
+pnpm db:push        # Push schema directly to database (no migrations)
+pnpm db:generate    # Generate migration files from schema changes
+pnpm db:studio      # Open Drizzle Studio (database GUI)
+```
+
+**When to use what**:
+- Development: Use `pnpm db:push` for rapid iteration
+- Production: Use `pnpm db:generate` + `pnpm db:migrate` for controlled migrations
+
+**Note**: DATABASE_URL is automatically loaded from `.dev.vars` using dotenv when running drizzle-kit commands.
+
+### Schema Definition
+
+Define your database tables in `src/db/schema.ts`:
+
+```typescript
+import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+export type User = typeof users.$inferSelect
+export type NewUser = typeof users.$inferInsert
+```
+
+After modifying the schema:
+1. Run `pnpm db:push` to update the database
+2. Types are automatically inferred by TypeScript
+
+### Using the Database in API Routes
+
+```typescript
+import { getDb } from '@/lib/db'
+import { users } from '@/db/schema'
+
+export async function GET() {
+  const db = await getDb()
+
+  // Query all users
+  const allUsers = await db.select().from(users)
+
+  // Insert a user
+  const newUser = await db.insert(users)
+    .values({ name: 'John', email: 'john@example.com' })
+    .returning()
+
+  return Response.json({ users: allUsers })
+}
+```
+
+### Production Setup
+
+Set `DATABASE_URL` as a Cloudflare secret:
+
+```bash
+pnpm wrangler secret put DATABASE_URL
+# Paste your Neon connection string when prompted
+```
+
+### Architecture Notes
+
+- **Connection**: Uses `@neondatabase/serverless` with HTTP driver (`neon-http`)
+- **Edge-optimized**: Queries over HTTP instead of WebSockets for better performance
+- **Serverless**: No connection pooling needed - Neon handles this automatically
+- **Type-safe**: Full TypeScript support with inferred types from schema
+
+Learn more:
+- [Neon Documentation](https://neon.com/docs)
+- [Drizzle ORM Documentation](https://orm.drizzle.team/docs/overview)
+- [Neon + Cloudflare Workers Guide](https://neon.com/blog/api-cf-drizzle-neon)
+
 ## Architecture Overview
 
 This is a **Next.js 15** application configured to deploy on **Cloudflare** using **OpenNext for Cloudflare**. The stack:
@@ -117,6 +226,7 @@ This is a **Next.js 15** application configured to deploy on **Cloudflare** usin
 - **Framework**: Next.js 15.4.6 with App Router
 - **Runtime**: React 19.1.0
 - **Deployment**: Cloudflare via `@opennextjs/cloudflare`
+- **Database**: Neon PostgreSQL with Drizzle ORM
 - **Styling**: Tailwind CSS v4 with shadcn/ui components (New York style)
 - **Animations**: Framer Motion
 - **Icons**: Lucide React
@@ -127,10 +237,14 @@ This is a **Next.js 15** application configured to deploy on **Cloudflare** usin
 ```
 src/
 ├── app/              # Next.js App Router pages
+│   ├── api/          # API routes
 │   ├── layout.tsx    # Root layout with Geist fonts
 │   ├── page.tsx      # Home page
 │   └── globals.css   # Global styles
+├── db/
+│   └── schema.ts     # Database schema (Drizzle ORM)
 └── lib/
+    ├── db.ts         # Database connection utility
     └── utils.ts      # Utility functions (cn for classnames)
 ```
 
@@ -139,6 +253,7 @@ src/
 - **next.config.ts**: Initialized with OpenNext Cloudflare dev mode via `initOpenNextCloudflareForDev()`
 - **open-next.config.ts**: Cloudflare-specific OpenNext configuration (R2 cache commented out)
 - **wrangler.jsonc**: Cloudflare Workers configuration with comprehensive inline documentation
+- **drizzle.config.ts**: Drizzle Kit configuration for migrations and schema management
 - **components.json**: shadcn/ui config - use `@/` path aliases for imports
 - **tsconfig.json**: Path alias `@/*` maps to `./src/*`, includes Cloudflare env types
 

@@ -9,10 +9,14 @@
 # All environment variables here are accessible via getCloudflareContext()
 # in your Next.js app. For production, use: pnpm wrangler secret put <KEY_NAME>
 
-# Example environment variables:
+# Neon Database (required for database features)
+# Get your connection string from: https://console.neon.tech
+# Format: postgresql://user:password@host/database?sslmode=require
+DATABASE_URL=postgresql://user:password@ep-xxx-xxx.region.aws.neon.tech/neondb?sslmode=require
+
+# Other environment variables:
 # API_KEY=your-api-key-here
 # STRIPE_SECRET_KEY=sk_test_...
-# DATABASE_URL=your-database-url
 
 # Public variables (exposed to browser - use sparingly):
 # NEXT_PUBLIC_API_URL=https://api.example.com

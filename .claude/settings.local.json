@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add .claude/CLAUDE.md package.json)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nUpdate documentation and dev server configuration\n\n- Enhance CLAUDE.md with comprehensive architecture documentation, development commands, and Cloudflare integration details\n- Change dev server port from 3333 to 4444\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push)",
+      "Bash(git add wrangler.jsonc)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nReplace wrangler.toml with wrangler.jsonc\n\n- Migrate from TOML to JSONC format for better IDE support and comments\n- Add comprehensive inline documentation for all Cloudflare bindings\n- Update compatibility_date to 2025-03-01\n- Include helpful reminders about pnpm cf-typegen after adding bindings\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(pnpm run deploy)",
+      "Bash(pnpm cf-typegen)",
+      "WebFetch(domain:neon.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

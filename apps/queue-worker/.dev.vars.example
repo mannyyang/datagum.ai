@@ -1,0 +1,26 @@
+# Cloudflare Environment Variables (Local Development - Queue Worker)
+# Copy this file to .dev.vars and fill in your values
+# .dev.vars is gitignored and will not be committed
+
+# Available when running:
+# - pnpm dev (Queue worker dev server)
+# - pnpm wrangler dev (local Cloudflare preview)
+
+# All environment variables here are accessible in your queue consumer handlers
+# For production, use: pnpm wrangler secret put <KEY_NAME>
+
+# Neon Database (required if queue worker writes to database)
+# Get your connection string from: https://console.neon.tech
+# Format: postgresql://user:password@host/database?sslmode=require
+DATABASE_URL=postgresql://user:password@ep-xxx-xxx.region.aws.neon.tech/neondb?sslmode=require
+
+# OpenAI API Key (required for AI processing tasks)
+# Get your API key from: https://platform.openai.com/api-keys
+OPENAI_API_KEY=sk-proj-your-openai-api-key-here
+
+# Other environment variables:
+# API_KEY=your-api-key-here
+# WEBHOOK_SECRET=whsec_...
+
+# Note: Queue workers run in Cloudflare Workers environment
+# All env vars are accessible via the env parameter in queue handlers

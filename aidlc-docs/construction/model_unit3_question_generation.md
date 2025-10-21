@@ -1,10 +1,10 @@
 # Domain Model: Unit 3 - AI Question Generation
 
-**Version**: 1.0.0
-**Last Updated**: 2025-10-20
+**Version**: 1.1.0
+**Last Updated**: 2025-10-21
 **Epic**: Epic 3 - AI Question Generation
 **User Stories**: US-3.1, US-3.2, US-3.3
-**Status**: In-Progress
+**Status**: ⚠️ In-Progress (Turborepo Monorepo - apps/queue-worker)
 
 ---
 
@@ -30,13 +30,16 @@ This domain model defines the components required to generate natural search que
 
 ## Component Overview
 
-### 1. QuestionGeneratorService
+### 1. QuestionGeneratorService ⚠️
 **Type**: Service
+**Location**: `apps/queue-worker/src/services/question-generator.ts` (to be implemented)
 **Responsibility**: Orchestrates AI-powered question generation from article content
+
+**Implementation Status**: ⚠️ Pending implementation
 
 **Attributes**:
 - `openAIClient`: OpenAI API client instance
-- `model`: string - 'gpt-4-turbo'
+- `model`: string - 'gpt-4.1-mini'
 - `defaultMaxQuestions`: number - 10
 - `temperature`: number - 0.7 (creativity level)
 - `maxTokens`: number - 1500 (response length limit)
@@ -150,7 +153,7 @@ Return ONLY a JSON object in this format:
 - `validateAPIKey()`: boolean - Checks if API key is set
 
 **API Configuration**:
-- **Model**: `gpt-4-turbo`
+- **Model**: `gpt-4.1-mini`
 - **Temperature**: 0.7 (balance creativity and consistency)
 - **Max Tokens**: 1500 (enough for 10 questions + summary)
 - **Response Format**: `{ type: 'json_object' }` (ensures JSON output)
@@ -387,10 +390,10 @@ Return ONLY a JSON object in this format:
 - Timeout: 30 seconds (Cloudflare Workers limit)
 
 ### Cost Management
-- GPT-4 Turbo pricing: ~$0.01-0.03 per request
+- gpt-4.1-mini pricing: ~$0.001-0.005 per request
 - Input tokens: ~800-1200 per article
 - Output tokens: ~300-800 per response
-- Monthly estimate: 1000 articles = $10-30
+- Monthly estimate: 1000 articles = $1-5
 
 ---
 
@@ -443,9 +446,9 @@ Return ONLY a JSON object in this format:
 
 ### Future Optimizations
 1. **Reduce Questions**: Generate 5 instead of 10 (-50% cost)
-2. **Use GPT-4-mini**: Lower cost model (-60% cost, slightly lower quality)
-3. **Content Caching**: Reuse questions for similar content
-4. **Smart Truncation**: Extract only most relevant paragraphs (<12k chars)
+2. **Content Caching**: Reuse questions for similar content
+3. **Smart Truncation**: Extract only most relevant paragraphs (<12k chars)
+4. **Batch Processing**: Process multiple articles in parallel
 
 ---
 
@@ -480,11 +483,20 @@ Return ONLY a JSON object in this format:
 
 ## Changelog
 
+### Version 1.1.0 (2025-10-21)
+**Turborepo Monorepo Migration**
+
+- **UPDATED**: Migrated to Turborepo monorepo structure (`apps/queue-worker`)
+- **UPDATED**: Main component location specified as `apps/queue-worker/src/services/question-generator.ts`
+- **UPDATED**: Status indicators added (⚠️ pending implementation)
+- **CLARIFIED**: Service will run in queue worker context (called by JobOrchestrator)
+- Implementation status: Pending - queue infrastructure ready to call this service
+
 ### Version 1.0.0 (2025-10-20)
 - Initial domain model creation
 - Defined 5 core components for AI question generation
 - Documented OpenAI API integration approach
-- Specified GPT-4 Turbo as model choice
+- Specified gpt-4.1-mini as model choice
 - Mapped to user stories US-3.1, US-3.2, US-3.3
 - Included cost estimates and optimization strategies
 - Defined validation rules and error handling

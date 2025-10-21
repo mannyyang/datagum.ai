@@ -1,10 +1,10 @@
 # Domain Model: Unit 1 - Article Submission & Validation
 
-**Version**: 1.0.0
-**Last Updated**: 2025-10-20
+**Version**: 1.1.0
+**Last Updated**: 2025-10-21
 **Epic**: Epic 1 - Article Submission & Validation
 **User Stories**: US-1.1, US-1.2, US-1.3
-**Status**: In-Progress
+**Status**: ⚠️ In-Progress (Turborepo Monorepo - apps/web)
 
 ---
 
@@ -29,9 +29,12 @@ This domain model defines the components, attributes, behaviors, and interaction
 
 ## Component Overview
 
-### 1. SubmissionFormComponent
+### 1. SubmissionFormComponent ⚠️
 **Type**: Frontend Client Component
+**Location**: `apps/web/src/components/` (to be implemented)
 **Responsibility**: Captures user input and handles form submission on the landing page
+
+**Implementation Status**: ⚠️ Pending implementation
 
 **Attributes**:
 - `url`: string - The article URL entered by user
@@ -52,9 +55,12 @@ This domain model defines the components, attributes, behaviors, and interaction
 
 ---
 
-### 2. SubmissionAPIHandler
+### 2. SubmissionAPIHandler ⚠️
 **Type**: API Route Handler
+**Location**: `apps/web/src/app/api/submit/route.ts` (to be implemented)
 **Responsibility**: Handles POST /api/submit endpoint for article submissions
+
+**Implementation Status**: ⚠️ Pending implementation
 
 **Attributes**:
 - `request`: HTTP Request object
@@ -77,9 +83,12 @@ This domain model defines the components, attributes, behaviors, and interaction
 
 ---
 
-### 3. URLValidator
+### 3. URLValidator ⚠️
 **Type**: Service/Utility
+**Location**: `apps/web/src/lib/validators/url-validator.ts` (to be implemented)
 **Responsibility**: Validates URL format and security constraints
+
+**Implementation Status**: ⚠️ Pending implementation
 
 **Attributes**:
 - `maxLength`: number - Maximum allowed URL length (2000)
@@ -107,9 +116,12 @@ This domain model defines the components, attributes, behaviors, and interaction
 
 ---
 
-### 4. RateLimiter
+### 4. RateLimiter ⚠️
 **Type**: Service
+**Location**: `apps/web/src/lib/services/rate-limiter.ts` (to be implemented)
 **Responsibility**: Enforces submission rate limits per IP address
+
+**Implementation Status**: ⚠️ Pending implementation
 
 **Attributes**:
 - `maxSubmissions`: number - Maximum submissions allowed (3)
@@ -134,13 +146,16 @@ This domain model defines the components, attributes, behaviors, and interaction
 
 ---
 
-### 5. SubmissionRepository
+### 5. SubmissionRepository ⚠️
 **Type**: Data Access Layer
+**Location**: `apps/web/src/lib/repositories/submission-repository.ts` (to be implemented)
 **Responsibility**: Manages database operations for submission records
 
+**Implementation Status**: ⚠️ Pending implementation (schema needs to be defined in `apps/web/src/db/schema.ts`)
+
 **Attributes**:
-- `db`: DrizzleORM database instance
-- `submissionsTable`: Database table schema
+- `db`: DrizzleORM database instance (from `apps/web/src/lib/db.ts`)
+- `submissionsTable`: Database table schema (to be defined)
 
 **Behaviors**:
 - `createSubmission(url, userIP)`: Submission - Inserts new record
@@ -174,27 +189,64 @@ This domain model defines the components, attributes, behaviors, and interaction
 
 ---
 
-### 6. JobQueueService
+### 6. JobQueueService ✅
 **Type**: Queue Integration Service
+**Location**: Integrated into API route via Cloudflare env binding
 **Responsibility**: Enqueues background jobs for article processing
 
+**Implementation Status**: ✅ Infrastructure ready (uses `packages/shared` types)
+
 **Attributes**:
-- `queueClient`: Cloudflare Queue binding
-- `queueName`: string - Name of the queue
+- `env.QUEUE`: Cloudflare Queue binding (configured in `apps/web/wrangler.jsonc`)
+- `queueName`: "datagum-queue"
 
 **Behaviors**:
-- `enqueueSubmission(submissionId)`: void - Adds job to queue
-- `createJobMessage(submissionId)`: Object - Formats queue message
-- `handleQueueError(error)`: void - Logs and handles queue failures
+- `env.QUEUE.send(message)`: Promise<void> - Sends typed message to queue
+- Uses message types from `packages/shared/src/queue-messages.ts`
+- Automatic error handling via Cloudflare infrastructure
 
-**Job Message Structure**:
-- `submissionId`: UUID - Reference to submission record
-- `enqueuedAt`: timestamp - When job was queued
-- `retryCount`: number - Current retry attempt (starts at 0)
+**Job Message Structure** (from `packages/shared/src/queue-messages.ts`):
+```typescript
+export const SubmissionJobMessageSchema = z.object({
+  type: z.literal('process-submission'),
+  payload: z.object({
+    submissionId: z.string().uuid(),
+    url: z.string().url(),
+    userId: z.string().optional(),
+  }),
+  timestamp: z.number(),
+  retryCount: z.number().default(0),
+})
+
+export type SubmissionJobMessage = z.infer<typeof SubmissionJobMessageSchema>
+```
+
+**Usage Example**:
+```typescript
+import { getCloudflareContext } from '@opennextjs/cloudflare'
+import type { SubmissionJobMessage } from '@datagum/shared'
+
+// In API route
+const { env } = await getCloudflareContext()
+
+const message: SubmissionJobMessage = {
+  type: 'process-submission',
+  payload: {
+    submissionId: submission.id,
+    url: submission.url,
+    userId: userIP,
+  },
+  timestamp: Date.now(),
+  retryCount: 0,
+}
+
+await env.QUEUE.send(message)
+```
 
 **Interactions**:
 - Called by `SubmissionAPIHandler` after submission created
-- Sends message to Cloudflare Queue for worker processing
+- Sends message to Cloudflare Queue for processing by `apps/queue-worker`
+- Message consumed by worker defined in Unit 6
 - If enqueue fails, submission remains in 'pending' status
 
 ---
@@ -454,6 +506,19 @@ This domain model defines the components, attributes, behaviors, and interaction
 ---
 
 ## Changelog
+
+### Version 1.1.0 (2025-10-21)
+**Turborepo Monorepo Migration**
+
+- **UPDATED**: Migrated to Turborepo monorepo structure (`apps/web`)
+- **UPDATED**: All components now specify location in monorepo
+- **ENHANCED**: JobQueueService updated with actual implementation using `packages/shared` types
+- **ADDED**: Zod schema examples for queue messages (`SubmissionJobMessage`)
+- **ADDED**: Usage example showing `env.QUEUE.send()` integration
+- **UPDATED**: Queue message structure with typed schemas
+- **UPDATED**: Status indicators: JobQueueService ✅, others ⚠️ pending
+- **DOCUMENTED**: File paths for all components in `apps/web/src/`
+- Implementation status: Queue infrastructure ready, other components pending
 
 ### Version 1.0.0 (2025-10-20)
 - Initial domain model creation

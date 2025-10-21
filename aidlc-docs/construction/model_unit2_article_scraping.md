@@ -1,10 +1,10 @@
 # Domain Model: Unit 2 - Article Content Extraction
 
-**Version**: 1.0.0
-**Last Updated**: 2025-10-20
+**Version**: 1.1.0
+**Last Updated**: 2025-10-21
 **Epic**: Epic 2 - Article Content Extraction
 **User Stories**: US-2.1, US-2.2, US-2.3, US-2.4, US-2.5
-**Status**: In-Progress
+**Status**: ⚠️ In-Progress (Turborepo Monorepo - apps/queue-worker)
 
 ---
 
@@ -31,9 +31,12 @@ This domain model defines the components required to scrape and extract content 
 
 ## Component Overview
 
-### 1. ArticleScraperService
+### 1. ArticleScraperService ⚠️
 **Type**: Service
+**Location**: `apps/queue-worker/src/services/article-scraper.ts` (to be implemented)
 **Responsibility**: Orchestrates article content extraction from URLs
+
+**Implementation Status**: ⚠️ Pending implementation
 
 **Attributes**:
 - `userAgent`: string - User agent for HTTP requests
@@ -63,9 +66,12 @@ This domain model defines the components required to scrape and extract content 
 
 ---
 
-### 2. HTMLFetcherService
+### 2. HTMLFetcherService ⚠️
 **Type**: Service
+**Location**: `apps/queue-worker/src/services/html-fetcher.ts` (to be implemented)
 **Responsibility**: Fetches raw HTML content from URLs
+
+**Implementation Status**: ⚠️ Pending implementation
 
 **Attributes**:
 - `timeout`: number - Request timeout (10000ms)
@@ -92,9 +98,12 @@ This domain model defines the components required to scrape and extract content 
 
 ---
 
-### 3. HTMLParserService
+### 3. HTMLParserService ⚠️
 **Type**: Service
+**Location**: `apps/queue-worker/src/services/html-parser.ts` (to be implemented)
 **Responsibility**: Parses HTML and extracts structured content
+
+**Implementation Status**: ⚠️ Pending implementation (will use jsdom for HTML parsing)
 
 **Attributes**:
 - `cheerio`: Library instance for HTML parsing
@@ -414,6 +423,16 @@ This domain model defines the components required to scrape and extract content 
 ---
 
 ## Changelog
+
+### Version 1.1.0 (2025-10-21)
+**Turborepo Monorepo Migration**
+
+- **UPDATED**: Migrated to Turborepo monorepo structure (`apps/queue-worker`)
+- **UPDATED**: All components now specify location in `apps/queue-worker/src/services/`
+- **UPDATED**: Status indicators added (⚠️ all pending implementation)
+- **CLARIFIED**: Services will run in queue worker context (called by JobOrchestrator)
+- **NOTE**: Will use jsdom for HTML parsing instead of cheerio (better Cloudflare Workers compatibility)
+- Implementation status: Pending - queue infrastructure ready to call these services
 
 ### Version 1.0.0 (2025-10-20)
 - Initial domain model creation

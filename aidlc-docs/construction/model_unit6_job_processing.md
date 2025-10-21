@@ -1,16 +1,22 @@
 # Domain Model: Unit 6 - Background Job Processing
 
-**Version**: 1.0.0
-**Last Updated**: 2025-10-20
+**Version**: 2.0.0
+**Last Updated**: 2025-10-21
 **Epic**: Epic 6 - Background Job Processing
 **User Stories**: US-6.1, US-6.2, US-6.3, US-6.4
-**Status**: In-Progress
+**Status**: ✅ Implemented (Turborepo Monorepo Architecture)
 
 ---
 
 ## Executive Summary
 
-This domain model defines the background job processing system that orchestrates the entire article analysis workflow. Using Cloudflare Queues, the system processes submissions asynchronously through scraping, question generation, and search testing phases with retry logic and error handling.
+This domain model defines the background job processing system that orchestrates the entire article analysis workflow. Using **Cloudflare Queues** in a **Turborepo monorepo** architecture, the system processes submissions asynchronously through scraping, question generation, and search testing phases with retry logic and error handling.
+
+### Architecture (v2.0.0)
+- **Producer**: Next.js web app (`apps/web`) sends messages to Cloudflare Queue
+- **Consumer**: Dedicated Cloudflare Worker (`apps/queue-worker`) processes queue messages
+- **Shared Types**: Type-safe message definitions in `packages/shared`
+- **Monorepo**: Turborepo manages both apps with single `pnpm dev` command
 
 ### Key Business Requirements
 - Consume submissions from Cloudflare Queue
@@ -31,9 +37,12 @@ This domain model defines the background job processing system that orchestrates
 
 ## Component Overview
 
-### 1. QueueConsumerWorker
+### 1. QueueConsumerWorker ✅
 **Type**: Cloudflare Queue Consumer
+**Location**: `apps/queue-worker/src/index.ts`
 **Responsibility**: Listens to Cloudflare Queue and processes submission jobs
+
+**Implementation Status**: ✅ Fully implemented in monorepo architecture
 
 **Attributes**:
 - `queueBinding`: CloudflareQueue - Queue consumer binding
@@ -41,52 +50,73 @@ This domain model defines the background job processing system that orchestrates
 - `retryDelayBase`: number - Base delay for exponential backoff (2000ms)
 
 **Behaviors**:
-- `consumeMessages(batch)`: void - Processes batch of queue messages
+- `queue(batch, env, ctx)`: void - Main queue handler (Cloudflare Worker export)
 - `processMessage(message)`: void - Handles single submission job
-- `acknowledgeMessage(message)`: void - Removes message from queue
-- `retryMessage(message, error)`: void - Requeues with retry count
+- Message automatically acknowledged by Cloudflare on success
+- Message automatically retried by Cloudflare on failure
 
-**Queue Message Structure**:
+**Queue Message Structure** (defined in `packages/shared/src/queue-messages.ts`):
 ```typescript
+export const SubmissionJobMessageSchema = z.object({
+  type: z.literal('process-submission'),
+  payload: z.object({
+    submissionId: z.string().uuid(),
+    url: z.string().url(),
+    userId: z.string().optional(),
+  }),
+  timestamp: z.number(),
+  retryCount: z.number().default(0),
+})
+
+export type SubmissionJobMessage = z.infer<typeof SubmissionJobMessageSchema>
+```
+
+**Consumer Configuration** (`apps/queue-worker/wrangler.jsonc`):
+```jsonc
 {
-  submissionId: UUID
-  enqueuedAt: timestamp
-  retryCount: number
-  previousError?: string
+  "queues": {
+    "consumers": [
+      {
+        "queue": "datagum-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30,
+        "max_retries": 3,
+        "dead_letter_queue": "datagum-dlq"
+      }
+    ]
+  }
 }
 ```
 
-**Consumer Configuration**:
-- **Batch Size**: 1 (process one submission at a time)
-- **Max Retries**: 3
-- **Retry Delay**: Exponential backoff (2s, 4s, 8s)
-- **Dead Letter Queue**: Jobs failing after 3 retries
-
 **Interactions**:
-- Receives messages from Cloudflare Queue (populated by Unit 1)
+- Receives messages from Cloudflare Queue (sent by `apps/web`)
 - Calls `JobOrchestrator` to execute analysis workflow
-- Manages message lifecycle (ack/retry)
+- Cloudflare automatically manages message lifecycle (ack/retry)
 
 ---
 
-### 2. JobOrchestrator
+### 2. JobOrchestrator ⚠️
 **Type**: Service
+**Location**: `apps/queue-worker/src/services/job-orchestrator.ts` (to be implemented)
 **Responsibility**: Orchestrates the complete analysis workflow for a submission
+
+**Implementation Status**: ⚠️ Planned - queue infrastructure ready, orchestrator pending
 
 **Attributes**:
 - `submissionId`: UUID - Current job being processed
 - `startTime`: number - Job start timestamp
 - `services`: { scraper, questionGen, searchTester } - Service instances
+- `db`: Database connection - Neon PostgreSQL via Drizzle ORM
 
 **Behaviors**:
-- `execute(submissionId)`: void - Main entry point
-- `validateSubmission()`: Submission - Checks submission exists
-- `updateStatus(status)`: void - Updates submission status
-- `runScrapingPhase()`: ScrapedArticle - Executes Unit 2
-- `runQuestionGenerationPhase(article)`: Questions - Executes Unit 3
-- `runSearchTestingPhase(questions, url)`: Results - Executes Unit 4
-- `markCompleted()`: void - Finalizes successful job
-- `markFailed(error)`: void - Handles job failure
+- `execute(submissionId, env)`: Promise<void> - Main entry point
+- `validateSubmission()`: Promise<Submission> - Checks submission exists
+- `updateStatus(status)`: Promise<void> - Updates submission status
+- `runScrapingPhase()`: Promise<ScrapedArticle> - Executes Unit 2
+- `runQuestionGenerationPhase(article)`: Promise<Questions> - Executes Unit 3
+- `runSearchTestingPhase(questions, url)`: Promise<Results> - Executes Unit 4
+- `markCompleted()`: Promise<void> - Finalizes successful job
+- `markFailed(error)`: Promise<void> - Handles job failure
 - `calculateDuration()`: number - Gets total processing time
 
 **Workflow Sequence**:
@@ -119,20 +149,36 @@ This domain model defines the background job processing system that orchestrates
 
 ---
 
-### 3. RetryManager
+### 3. RetryManager ✅
 **Type**: Utility Component
+**Location**: `packages/shared/src/utils.ts` (`retryWithBackoff` function)
 **Responsibility**: Manages retry logic and exponential backoff
 
+**Implementation Status**: ✅ Implemented as reusable utility function
+
 **Attributes**:
-- `maxRetries`: number - 3
-- `baseDelay`: number - 2000ms
-- `backoffMultiplier`: number - 2
+- `maxRetries`: number - 3 (configurable)
+- `baseDelay`: number - 1000ms (configurable)
+- `backoffMultiplier`: number - 2 (exponential)
 
 **Behaviors**:
-- `shouldRetry(retryCount)`: boolean - Checks if under max retries
-- `calculateDelay(retryCount)`: number - Exponential backoff calculation
-- `incrementRetryCount(message)`: Message - Updates retry counter
-- `isRetryableError(error)`: boolean - Determines if error is transient
+- `retryWithBackoff<T>(fn, options)`: Promise<T> - Retries async function with exponential backoff
+- Automatic retry on failure with configurable delays
+- Throws error after max retries exceeded
+
+**Implementation**:
+```typescript
+// packages/shared/src/utils.ts
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  options: RetryOptions = {}
+): Promise<T> {
+  const { maxRetries = 3, baseDelay = 1000, backoffMultiplier = 2 } = options
+  // ... exponential backoff logic
+}
+```
+
+**Note**: Cloudflare Queues also provides automatic retry at the infrastructure level (configured in `wrangler.jsonc`)
 
 **Exponential Backoff Formula**:
 ```
@@ -160,16 +206,20 @@ Attempt 3: 2000ms * 2^2 = 8 seconds
 
 ---
 
-### 4. StatusTracker
+### 4. StatusTracker ⚠️
 **Type**: Utility Component
+**Location**: `apps/queue-worker/src/services/status-tracker.ts` (to be implemented)
 **Responsibility**: Tracks and updates submission status through workflow
 
+**Implementation Status**: ⚠️ Planned - will be integrated into JobOrchestrator
+
 **Attributes**:
-- `validStatuses`: string[] - ['pending', 'processing', 'completed', 'failed']
+- `validStatuses`: enum - ['pending', 'processing', 'completed', 'failed'] (defined in database schema)
 - `statusTransitions`: Map - Valid status transitions
+- `db`: Database connection - for persisting status updates
 
 **Behaviors**:
-- `updateStatus(submissionId, newStatus)`: void - Updates database
+- `updateStatus(submissionId, newStatus)`: Promise<void> - Updates database
 - `validateTransition(currentStatus, newStatus)`: boolean - Checks if allowed
 - `logStatusChange(submissionId, from, to)`: void - Audit logging
 
@@ -194,13 +244,16 @@ failed → processing (retry)
 
 ---
 
-### 5. JobMonitor
+### 5. JobMonitor ⚠️
 **Type**: Monitoring/Logging Service
+**Location**: `apps/queue-worker/src/services/job-monitor.ts` (to be implemented)
 **Responsibility**: Tracks job performance metrics and errors
 
+**Implementation Status**: ⚠️ Planned - will use Cloudflare Workers Analytics
+
 **Attributes**:
-- `metrics`: MetricsCollector - Performance tracking
-- `logger`: Logger - Error and info logging
+- `metrics`: Analytics Binding - Cloudflare Workers Analytics
+- `logger`: console - Structured logging to Cloudflare Workers logs
 
 **Behaviors**:
 - `logJobStart(submissionId)`: void - Records job initiation
@@ -208,7 +261,7 @@ failed → processing (retry)
 - `logJobFailed(submissionId, error, retryCount)`: void - Records failure
 - `trackProcessingTime(phase, duration)`: void - Metrics per phase
 - `trackErrorRate(errorType)`: void - Error categorization
-- `alertOnHighFailureRate()`: void - Monitoring alerts
+- `alertOnHighFailureRate()`: void - Monitoring alerts via Cloudflare Alerts
 
 **Tracked Metrics**:
 - Average processing time per submission
@@ -233,15 +286,28 @@ failed → processing (retry)
 
 ### Job Processing Flow Sequence
 
-1. **Submission Enqueued** (from Unit 1):
-   - User submits article URL
-   - Submission record created with status 'pending'
-   - Message sent to Cloudflare Queue
-   - Message contains: `{ submissionId, enqueuedAt, retryCount: 0 }`
+1. **Submission Enqueued** (from Unit 1 in `apps/web`):
+   - User submits article URL via web app
+   - Submission record created in database with status 'pending'
+   - API route calls `env.QUEUE.send(message)` to enqueue job
+   - Message structure (from `packages/shared/src/queue-messages.ts`):
+   ```typescript
+   {
+     type: 'process-submission',
+     payload: {
+       submissionId: UUID,
+       url: string,
+       userId?: string
+     },
+     timestamp: number,
+     retryCount: 0
+   }
+   ```
 
-2. **Queue Consumer Receives Message**:
-   - `QueueConsumerWorker.consumeMessages()` triggered
-   - Extract `submissionId` from message
+2. **Queue Consumer Receives Message** (in `apps/queue-worker`):
+   - `queue(batch, env, ctx)` handler triggered by Cloudflare
+   - Parse and validate message using Zod schema
+   - Extract `submissionId` from message payload
 
 3. **Job Start**:
    - `JobMonitor.logJobStart(submissionId)`
@@ -267,6 +333,7 @@ failed → processing (retry)
 
 7. **Phase 2: Question Generation**:
    - Call `QuestionGeneratorService.generateQuestions(article, 10)`
+   - Uses gpt-4.1-mini model
    - If successful:
      - Store `generatedQuestions` array in submission
      - Update `updatedAt`
@@ -337,6 +404,12 @@ failed → processing (retry)
 - **Typical**: 60-180 seconds (1-3 minutes)
 - **With Delays**: +10 seconds (rate limiting between searches)
 - **With Retries**: Can add 2-14 seconds per retry
+
+### API Costs per Job
+- **Scraping**: Free (HTTP request)
+- **Question Generation (gpt-4.1-mini)**: ~$0.001-0.005
+- **Search Testing (gpt-5, 10 queries)**: ~$0.20-0.50
+- **Total**: ~$0.20-0.51 per article
 
 ### Output
 - **Submission Record**: Updated with all extracted data
@@ -468,6 +541,24 @@ failed → processing (retry)
 
 ## Changelog
 
+### Version 2.0.0 (2025-10-21) ✅ MAJOR RELEASE
+**Migration to Turborepo Monorepo Architecture**
+
+- **BREAKING**: Migrated from single-app to Turborepo monorepo structure
+- **NEW**: Separated concerns - `apps/web` (producer) + `apps/queue-worker` (consumer)
+- **NEW**: Shared types package (`packages/shared`) with Zod schemas for queue messages
+- **NEW**: Type-safe queue message definitions in `packages/shared/src/queue-messages.ts`
+- **ENHANCED**: Producer configuration in `apps/web/wrangler.jsonc` with queue binding
+- **ENHANCED**: Consumer configuration in `apps/queue-worker/wrangler.jsonc` with retry/DLQ settings
+- **ENHANCED**: Single development command (`pnpm dev`) runs both apps simultaneously
+- **ENHANCED**: Shared `.dev.vars` file accessible to both apps
+- **ADDED**: `retryWithBackoff` utility in `packages/shared/src/utils.ts`
+- **ADDED**: Example queue API route at `apps/web/src/app/api/queue/route.ts`
+- **UPDATED**: All file paths to reflect monorepo structure
+- **UPDATED**: Component statuses: QueueConsumerWorker ✅, RetryManager ✅, others ⚠️ pending
+- **DOCUMENTED**: Complete monorepo setup in `.claude/CLAUDE.md`
+- Implementation status: Queue infrastructure fully implemented, orchestrator pending
+
 ### Version 1.0.0 (2025-10-20)
 - Initial domain model creation
 - Defined 5 core components for job processing
@@ -476,3 +567,6 @@ failed → processing (retry)
 - Mapped to user stories US-6.1 through US-6.4
 - Defined monitoring and alerting strategy
 - Orchestrates Units 2, 3, and 4 in sequence
+- Uses gpt-4.1-mini for question generation (Unit 3)
+- Uses gpt-5 with low reasoning for search testing (Unit 4)
+- Includes cost breakdown per job

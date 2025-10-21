@@ -1,0 +1,39 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "datagum-queue-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  /**
+   * Queue Consumer Configuration
+   * https://developers.cloudflare.com/queues/
+   */
+  "queues": {
+    "consumers": [
+      {
+        "queue": "datagum-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30,
+        "max_retries": 3,
+        "dead_letter_queue": "datagum-dlq"
+      }
+    ]
+  }
+
+  /**
+   * Add environment variables (secrets) using: pnpm wrangler secret put <KEY>
+   * Example: pnpm wrangler secret put OPENAI_API_KEY
+   */
+
+  /**
+   * Add bindings as needed (D1, KV, R2, etc.)
+   */
+  // "d1_databases": [
+  //   {
+  //     "binding": "DB",
+  //     "database_name": "datagum-db",
+  //     "database_id": "your-database-id"
+  //   }
+  // ]
+}

@@ -1,26 +1,32 @@
 # Domain Model: Unit 4 - AI Search Visibility Testing
 
-**Version**: 1.0.0
-**Last Updated**: 2025-10-20
+**Version**: 1.1.0
+**Last Updated**: 2025-10-21
 **Epic**: Epic 4 - AI Search Visibility Testing
 **User Stories**: US-4.1, US-4.2, US-4.3, US-4.4, US-4.5
-**Status**: In-Progress
+**Status**: Implementation Required - API Integration Update
 
 ---
 
 ## Executive Summary
 
-This domain model defines the components required to test generated questions through OpenAI's Responses API with web search capabilities. The system executes each question, parses citations and sources, determines if the target article appears, and identifies competing domains. This is the core analysis engine of the Article Analyzer.
+This domain model defines the components required to test generated questions through OpenAI's **native Responses API with web_search tool**. The system performs ACTUAL web searches for each question, retrieves real web results, parses citations and sources from the AI's answer, determines if the target article appears, and identifies competing domains. This is the core analysis engine of the Article Analyzer.
+
+### ⚠️ IMPORTANT: Implementation Update Required
+
+The current implementation (v1.0) uses a **simulated search approach** via Vercel AI SDK's `generateText()`, which prompts GPT-5 to simulate search results. This must be replaced with **OpenAI's native `client.responses.create()`** method using the `web_search` tool to perform real web searches.
 
 ### Key Business Requirements
-- Execute each question through OpenAI Responses API with web_search tool
-- Parse search results to extract sources and citations
+- Execute each question through OpenAI Responses API with `web_search` tool ⚠️
+- Parse **real web search results** to extract sources and citations ⚠️
 - Determine if target URL appears in sources (retrieved but not cited)
 - Determine if target URL appears in citations (actually cited in answer)
 - Track citation tiers: Found in Sources vs Found in Citations
 - Identify competing domains that ranked instead
 - Handle OpenAI rate limits and API errors
-- Store individual test results for each question
+- Store individual test results for each question ✅
+
+**Legend**: ✅ Implemented | ⚠️ Needs Update (simulated → real search)
 
 ### Related User Stories
 - **US-4.1**: Execute Search Queries
@@ -89,16 +95,39 @@ This domain model defines the components required to test generated questions th
 - `measureResponseTime(startTime)`: number - Calculates duration
 - `handleAPIError(error)`: SearchResponse - Formats error response
 
-**API Configuration**:
+**API Configuration** (Required Implementation):
+```typescript
+import OpenAI from "openai";
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const response = await client.responses.create({
+  model: "gpt-5",
+  reasoning: { effort: "low" },
+  tools: [
+    {
+      type: "web_search",
+      // Optional: Filter to specific domains for more focused results
+      // filters: {
+      //   allowed_domains: ["example.com", "competitor.com"]
+      // }
+    }
+  ],
+  tool_choice: "auto",  // Let model decide when to use search
+  include: ["web_search_call.action.sources"], // Include source URLs
+  input: question  // The user's question
+});
+
+// Response structure:
+// response.output_text - The AI's answer with citations
+// response.output - Array of output items including web_search_call
 ```
-{
-  model: 'gpt-5',
-  input: query,
-  tools: [{ type: 'web_search' }],
-  reasoning: { effort: 'low' },
-  include: ['web_search_call.action.sources']
-}
-```
+
+**Key Differences from Current Implementation**:
+- ❌ Current: Uses `generateText()` from Vercel AI SDK - simulates search
+- ✅ Required: Use `responses.create()` from OpenAI SDK - performs real search
+- ❌ Current: AI generates fake citations based on its training data
+- ✅ Required: AI retrieves actual web pages and cites real sources
+- ✅ Required: `web_search_call.action.sources` contains actual URLs found
 
 **API Components**:
 - **model**: 'gpt-5' - Latest model with search capabilities
@@ -108,16 +137,46 @@ This domain model defines the components required to test generated questions th
 - **include**: Specifies which response parts to include
 
 **Response Structure** (OpenAI Responses API):
-```
-{
+```typescript
+interface ResponsesAPIOutput {
   id: string
   model: string
-  output: Array<OutputItem> | Object
-  // OutputItem can be:
-  // - { type: 'web_search_call', action: { sources: [...] } }
-  // - { type: 'message', content: [...] }
+  output_text: string  // The full AI answer with inline citations
+  output: Array<OutputItem>  // Structured output items
+  // OutputItem types:
+  // 1. web_search_call - Contains sources retrieved from web search
+  // 2. message - Contains the AI's answer with citation annotations
+}
+
+interface WebSearchCallItem {
+  type: 'web_search_call'
+  action: {
+    sources: Array<string | { url: string }>  // URLs retrieved by search
+  }
+}
+
+interface MessageItem {
+  type: 'message'
+  content: Array<{
+    type: 'text'
+    text: string
+    annotations?: Array<URLCitation>  // Citations embedded in answer
+  }>
+}
+
+interface URLCitation {
+  type: 'url_citation'
+  url: string  // The cited URL
+  title?: string  // Citation title
+  start_index?: number  // Position in text
+  end_index?: number  // End position
 }
 ```
+
+**Parsing Logic**:
+1. Extract sources from `output` items with `type === 'web_search_call'`
+2. Extract citations from `output` items with `type === 'message'`
+3. Citations are in `content[].annotations[]` where `type === 'url_citation'`
 
 **Interactions**:
 - Called by `SearchTesterService.testSingleQuestion()`
@@ -540,7 +599,139 @@ This domain model defines the components required to test generated questions th
 
 ---
 
+## Implementation Status
+
+### ✅ What's Implemented (Current v1.0)
+**Files Created**:
+- `src/services/search-tester.service.ts` (~200 lines) - Orchestrates search testing
+- `src/utils/citation-parser.ts` (~150 lines) - Parses citations and sources
+- `src/types/search-testing.ts` (~50 lines) - TypeScript types
+- `src/prompts/search-testing.prompts.ts` (~45 lines) - System prompts
+- `src/lib/openai-client.ts` (~30 lines) - OpenAI provider setup
+- `src/repositories/results.repository.ts` (~100 lines) - Database operations
+
+**What Works**:
+- ✅ Database schema for storing test results
+- ✅ URL matching logic (exact match + normalization)
+- ✅ Citation/source extraction from text responses
+- ✅ Batch testing with retry logic
+- ✅ Results storage and retrieval
+- ✅ Error handling and logging
+
+### ⚠️ What Needs Updating (v1.0 → v1.1)
+
+**Critical Change**: Switch from simulated to real web search
+
+**File: `src/services/search-tester.service.ts`**
+Current approach (INCORRECT):
+```typescript
+import { generateText } from 'ai'
+import { getOpenAIProvider } from '@/lib/openai-client'
+
+// This simulates search - AI invents sources!
+const { text } = await generateText({
+  model: openai(MODEL),
+  messages: [
+    { role: 'system', content: SEARCH_SIMULATION_SYSTEM_PROMPT },
+    { role: 'user', content: buildSearchPrompt(input.question) }
+  ],
+})
+```
+
+Required approach (CORRECT):
+```typescript
+import OpenAI from 'openai'
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+})
+
+// This performs REAL web search!
+const response = await openai.responses.create({
+  model: "gpt-5",
+  reasoning: { effort: "low" },
+  tools: [{ type: "web_search" }],
+  tool_choice: "auto",
+  include: ["web_search_call.action.sources"],
+  input: input.question
+})
+```
+
+**File: `src/utils/citation-parser.ts`**
+Current: Parses text patterns like `**Sources:**` and numbered lists
+Required: Parse structured `response.output` array for:
+- `web_search_call.action.sources` (actual retrieved URLs)
+- `message.content[].annotations` (actual citations with metadata)
+
+**File: `src/lib/openai-client.ts`**
+Current: Returns Vercel AI SDK provider
+Required: Return OpenAI client instance
+```typescript
+// Remove Vercel AI SDK
+// Add direct OpenAI client
+export function getOpenAIClient(apiKey?: string): OpenAI {
+  return new OpenAI({
+    apiKey: apiKey || process.env.OPENAI_API_KEY
+  })
+}
+```
+
+**File: `src/prompts/search-testing.prompts.ts`**
+Status: **DELETE** - No longer needed for real search
+Reason: Real web_search tool doesn't need prompt engineering
+
+**Dependencies to Update**:
+```bash
+# Current (incorrect)
+pnpm remove ai @ai-sdk/openai
+
+# Required (correct)
+pnpm add openai
+```
+
+### Implementation Checklist
+
+- [ ] **Step 1**: Install OpenAI SDK (`pnpm add openai`)
+- [ ] **Step 2**: Update `src/lib/openai-client.ts` to return OpenAI client
+- [ ] **Step 3**: Update `src/services/search-tester.service.ts` to use `responses.create()`
+- [ ] **Step 4**: Update `src/utils/citation-parser.ts` to parse `response.output` array
+- [ ] **Step 5**: Delete `src/prompts/search-testing.prompts.ts` (no longer needed)
+- [ ] **Step 6**: Update type definitions in `src/types/search-testing.ts`
+- [ ] **Step 7**: Test with real article to verify actual web search works
+- [ ] **Step 8**: Verify citations are from real web pages (not hallucinated)
+- [ ] **Step 9**: Check that `web_search_call.action.sources` contains actual URLs
+- [ ] **Step 10**: Update cost estimates (real search may be more expensive)
+
+### Why This Update is Critical
+
+**Current Problem** (Simulated Search):
+- ❌ AI invents/hallucinates sources based on training data
+- ❌ Citations may be outdated or fictional
+- ❌ No guarantee the article actually exists
+- ❌ Cannot detect real competitor rankings
+- ❌ Results are not representative of actual search visibility
+
+**After Update** (Real Search):
+- ✅ AI retrieves ACTUAL web pages via search
+- ✅ Citations are from real, current web content
+- ✅ Sources are URLs that actually exist and are indexed
+- ✅ Competitor analysis reflects real search rankings
+- ✅ Results accurately represent AI search visibility
+
+---
+
 ## Changelog
+
+### Version 1.1.0 (2025-10-21)
+**Breaking Change**: Update to use OpenAI native web_search tool
+- Added implementation status section documenting required changes
+- Specified exact code changes needed to switch from simulated to real search
+- Updated API configuration examples with correct `responses.create()` usage
+- Added response structure documentation for `web_search_call` and `message` types
+- Documented critical differences between simulated and real search
+- Added implementation checklist for updating from v1.0 to v1.1
+- Updated dependency requirements (remove Vercel AI SDK, add OpenAI SDK)
+- Clarified that search prompts are not needed for real web_search tool
 
 ### Version 1.0.0 (2025-10-20)
 - Initial domain model creation

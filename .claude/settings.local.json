@@ -12,7 +12,19 @@
       "Bash(pnpm add drizzle-orm @neondatabase/serverless)",
       "Bash(pnpm add -D drizzle-kit)",
       "Bash(pnpm add -D drizzle-kit postgres dotenv tsx)",
-      "Bash(git add -A)"
+      "Bash(git add -A)",
+      "Bash(pnpm add jsdom)",
+      "Bash(pnpm add -D @types/jsdom)",
+      "Bash(pnpm add openai)",
+      "Bash(pnpm remove openai)",
+      "Bash(pnpm add ai @ai-sdk/openai)",
+      "Bash(pnpm build)",
+      "WebSearch",
+      "Bash(pnpm add -D turbo -w)",
+      "Bash(pnpm add -D turbo)",
+      "SlashCommand(/domain update with changes from monorepo setup and cloudflare queues integration)",
+      "Bash(pnpm install)",
+      "Bash(pnpm dev)"
     ],
     "deny": [],
     "ask": []

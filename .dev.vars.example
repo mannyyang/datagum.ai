@@ -1,0 +1,21 @@
+# Cloudflare Environment Variables (Local Development)
+# Copy this file to .dev.vars and fill in your values
+# .dev.vars is gitignored and will not be committed
+
+# Available when running:
+# - pnpm dev (Next.js dev server with Cloudflare bindings)
+# - pnpm preview (local Cloudflare preview)
+
+# All environment variables here are accessible via getCloudflareContext()
+# in your Next.js app. For production, use: pnpm wrangler secret put <KEY_NAME>
+
+# Example environment variables:
+# API_KEY=your-api-key-here
+# STRIPE_SECRET_KEY=sk_test_...
+# DATABASE_URL=your-database-url
+
+# Public variables (exposed to browser - use sparingly):
+# NEXT_PUBLIC_API_URL=https://api.example.com
+
+# Note: Unlike traditional Next.js, you don't need separate .env.local
+# All env vars go here and are accessible server-side via Cloudflare env

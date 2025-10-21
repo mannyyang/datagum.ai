@@ -34,6 +34,82 @@ pnpm cf-typegen         # Generate Cloudflare environment types
 - Lint staged files: ESLint fix + Prettier write on `.{js,jsx,ts,tsx}` files
 - Format staged files: Prettier write on `.{json,md}` files
 
+## Environment Variables
+
+This project uses **Cloudflare environment variables** exclusively. Since we deploy to Cloudflare, all environment variables are managed through Cloudflare's system.
+
+### Local Development Setup
+
+```bash
+# Copy the example file
+cp .dev.vars.example .dev.vars
+
+# Edit .dev.vars and add your environment variables
+# These are available in both pnpm dev and pnpm preview
+```
+
+**Important**: `.dev.vars` is gitignored. All your local secrets go here.
+
+### Production Deployment
+
+For production, use Wrangler CLI to securely manage secrets:
+
+```bash
+# Set a secret (interactive prompt)
+pnpm wrangler secret put API_KEY
+
+# List all secrets
+pnpm wrangler secret list
+
+# Delete a secret
+pnpm wrangler secret delete API_KEY
+```
+
+Secrets are encrypted and never exposed in `wrangler.jsonc` or version control.
+
+### Accessing Environment Variables
+
+All environment variables are accessed via Cloudflare context in your Next.js app:
+
+```typescript
+import { getCloudflareContext } from '@opennextjs/cloudflare'
+
+export async function GET() {
+  const { env } = await getCloudflareContext()
+
+  // Access environment variables
+  const apiKey = env.API_KEY
+  const dbUrl = env.DATABASE_URL
+
+  // Access Cloudflare bindings (KV, R2, D1, etc.)
+  const assets = env.ASSETS
+
+  // ...
+}
+```
+
+### Public Variables (Browser-Accessible)
+
+For variables that need to be exposed to the browser, prefix them with `NEXT_PUBLIC_`:
+
+```typescript
+// In .dev.vars or production secrets
+NEXT_PUBLIC_API_URL=https://api.example.com
+
+// Access in client components
+const apiUrl = process.env.NEXT_PUBLIC_API_URL
+```
+
+**Note**: Use public variables sparingly - they're visible to users in the browser.
+
+### Why Not .env.local?
+
+Unlike traditional Next.js, this project doesn't use `.env.local` because:
+- We deploy exclusively to Cloudflare (not Vercel or Node.js)
+- OpenNext integrates Cloudflare's environment system into Next.js
+- `.dev.vars` provides a unified approach for local and production environments
+- All Cloudflare bindings (KV, R2, D1) are accessed the same way
+
 ## Architecture Overview
 
 This is a **Next.js 15** application configured to deploy on **Cloudflare** using **OpenNext for Cloudflare**. The stack:

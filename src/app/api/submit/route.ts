@@ -95,7 +95,13 @@ export async function POST(request: NextRequest) {
  * Extract user IP address from request
  */
 function extractUserIP(request: NextRequest): string | undefined {
-  // Try X-Forwarded-For header first (Cloudflare, proxies)
+  // Cloudflare-specific header (most reliable on Cloudflare)
+  const cfConnectingIp = request.headers.get('cf-connecting-ip')
+  if (cfConnectingIp) {
+    return cfConnectingIp
+  }
+
+  // Try X-Forwarded-For header (proxies)
   const forwardedFor = request.headers.get('x-forwarded-for')
   if (forwardedFor) {
     // Take first IP if multiple
@@ -108,10 +114,9 @@ function extractUserIP(request: NextRequest): string | undefined {
     return realIp
   }
 
-  // Cloudflare-specific header
-  const cfConnectingIp = request.headers.get('cf-connecting-ip')
-  if (cfConnectingIp) {
-    return cfConnectingIp
+  // Try Next.js built-in IP property
+  if (request.ip) {
+    return request.ip
   }
 
   return undefined

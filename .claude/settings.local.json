@@ -33,7 +33,8 @@
       "Bash(pnpm wrangler dev --remote --env dev)",
       "Bash(pkill -f \"next dev\\|wrangler dev\")",
       "Bash(pnpm opennextjs-cloudflare --help)",
-      "Bash(pnpm preview)"
+      "Bash(pnpm preview)",
+      "Bash(git checkout src/queue/handler.ts)"
     ],
     "deny": [],
     "ask": []

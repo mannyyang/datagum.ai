@@ -86,23 +86,25 @@ export default {
 
 ### 1. QueueConsumerWorker ✅
 **Type**: Cloudflare Queue Consumer
-**Location**: `apps/queue-worker/src/index.ts`
+**Location**: `worker-wrapper.ts` (extends OpenNext worker)
 **Responsibility**: Listens to Cloudflare Queue and processes submission jobs
 
-**Implementation Status**: ✅ Fully implemented in monorepo architecture
+**Implementation Status**: ✅ Fully implemented with worker wrapper pattern
 
 **Attributes**:
-- `queueBinding`: CloudflareQueue - Queue consumer binding
-- `maxRetries`: number - Maximum retry attempts (3)
-- `retryDelayBase`: number - Base delay for exponential backoff (2000ms)
+- `queueBinding`: CloudflareQueue - Queue consumer binding (ARTICLE_ANALYSIS_QUEUE)
+- `maxRetries`: number - Maximum retry attempts (3, configured in wrangler.jsonc)
+- `maxBatchSize`: number - Maximum messages per batch (10)
+- `maxBatchTimeout`: number - Maximum wait time for batch (30 seconds)
 
 **Behaviors**:
-- `queue(batch, env, ctx)`: void - Main queue handler (Cloudflare Worker export)
-- `processMessage(message)`: void - Handles single submission job
+- `queue(batch, env, ctx)`: void - Main queue handler (exported from worker-wrapper.ts)
+- `queueHandler(batch, env, ctx)`: void - Processes batches of messages (in src/queue/handler.ts)
+- `processMessage(message)`: void - Routes to appropriate message handler
 - Message automatically acknowledged by Cloudflare on success
-- Message automatically retried by Cloudflare on failure
+- Message automatically retried by Cloudflare on failure (sent to DLQ after max retries)
 
-**Queue Message Structure** (defined in `packages/shared/src/queue-messages.ts`):
+**Queue Message Structure** (defined in `src/lib/shared/queue-messages.ts`):
 ```typescript
 export const SubmissionJobMessageSchema = z.object({
   type: z.literal('process-submission'),
@@ -118,10 +120,17 @@ export const SubmissionJobMessageSchema = z.object({
 export type SubmissionJobMessage = z.infer<typeof SubmissionJobMessageSchema>
 ```
 
-**Consumer Configuration** (`apps/queue-worker/wrangler.jsonc`):
+**Consumer Configuration** (`wrangler.jsonc`):
 ```jsonc
 {
+  "main": "worker-wrapper.ts",
   "queues": {
+    "producers": [
+      {
+        "binding": "ARTICLE_ANALYSIS_QUEUE",
+        "queue": "datagum-queue"
+      }
+    ],
     "consumers": [
       {
         "queue": "datagum-queue",
@@ -136,18 +145,19 @@ export type SubmissionJobMessage = z.infer<typeof SubmissionJobMessageSchema>
 ```
 
 **Interactions**:
-- Receives messages from Cloudflare Queue (sent by `apps/web`)
-- Calls `JobOrchestrator` to execute analysis workflow
+- Receives messages from Cloudflare Queue (sent by Next.js app)
+- Routes to appropriate handler based on message type
+- Calls `JobOrchestrator` for 'process-submission' messages
 - Cloudflare automatically manages message lifecycle (ack/retry)
 
 ---
 
-### 2. JobOrchestrator ⚠️
+### 2. JobOrchestrator ✅
 **Type**: Service
-**Location**: `apps/queue-worker/src/services/job-orchestrator.ts` (to be implemented)
+**Location**: `src/queue/services/job-orchestrator.ts`
 **Responsibility**: Orchestrates the complete analysis workflow for a submission
 
-**Implementation Status**: ⚠️ Planned - queue infrastructure ready, orchestrator pending
+**Implementation Status**: ✅ Implemented with placeholder phase logic (actual scraping/generation/testing pending)
 
 **Attributes**:
 - `submissionId`: UUID - Current job being processed
@@ -198,7 +208,7 @@ export type SubmissionJobMessage = z.infer<typeof SubmissionJobMessageSchema>
 
 ### 3. RetryManager ✅
 **Type**: Utility Component
-**Location**: `packages/shared/src/utils.ts` (`retryWithBackoff` function)
+**Location**: `src/lib/shared/utils.ts` (`retryWithBackoff` function)
 **Responsibility**: Manages retry logic and exponential backoff
 
 **Implementation Status**: ✅ Implemented as reusable utility function
@@ -215,7 +225,7 @@ export type SubmissionJobMessage = z.infer<typeof SubmissionJobMessageSchema>
 
 **Implementation**:
 ```typescript
-// packages/shared/src/utils.ts
+// src/lib/shared/utils.ts
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   options: RetryOptions = {}
@@ -255,7 +265,7 @@ Attempt 3: 2000ms * 2^2 = 8 seconds
 
 ### 4. StatusTracker ⚠️
 **Type**: Utility Component
-**Location**: `apps/queue-worker/src/services/status-tracker.ts` (to be implemented)
+**Location**: `src/queue/services/status-tracker.ts` (to be implemented)
 **Responsibility**: Tracks and updates submission status through workflow
 
 **Implementation Status**: ⚠️ Planned - will be integrated into JobOrchestrator
@@ -293,7 +303,7 @@ failed → processing (retry)
 
 ### 5. JobMonitor ⚠️
 **Type**: Monitoring/Logging Service
-**Location**: `apps/queue-worker/src/services/job-monitor.ts` (to be implemented)
+**Location**: `src/queue/services/job-monitor.ts` (to be implemented)
 **Responsibility**: Tracks job performance metrics and errors
 
 **Implementation Status**: ⚠️ Planned - will use Cloudflare Workers Analytics
@@ -333,11 +343,11 @@ failed → processing (retry)
 
 ### Job Processing Flow Sequence
 
-1. **Submission Enqueued** (from Unit 1 in `apps/web`):
+1. **Submission Enqueued** (from Unit 1 in Next.js app):
    - User submits article URL via web app
    - Submission record created in database with status 'pending'
-   - API route calls `env.QUEUE.send(message)` to enqueue job
-   - Message structure (from `packages/shared/src/queue-messages.ts`):
+   - API route calls `env.ARTICLE_ANALYSIS_QUEUE.send(message)` to enqueue job
+   - Message structure (from `src/lib/shared/queue-messages.ts`):
    ```typescript
    {
      type: 'process-submission',
@@ -351,10 +361,12 @@ failed → processing (retry)
    }
    ```
 
-2. **Queue Consumer Receives Message** (in `apps/queue-worker`):
+2. **Queue Consumer Receives Message** (in `worker-wrapper.ts`):
    - `queue(batch, env, ctx)` handler triggered by Cloudflare
+   - Delegates to `queueHandler` in `src/queue/handler.ts`
    - Parse and validate message using Zod schema
-   - Extract `submissionId` from message payload
+   - Route to appropriate handler based on message type
+   - Extract `submissionId` from message payload for 'process-submission' messages
 
 3. **Job Start**:
    - `JobMonitor.logJobStart(submissionId)`
@@ -618,58 +630,53 @@ pnpm wrangler queues list
 ```
 
 **Queue Purpose**:
-- `datagum-queue`: Production queue - used by deployed web app
-- `datagum-dlq`: Production dead letter queue - failed production messages
-- `datagum-queue-dev`: Development queue - used during local development with `--remote` flag
-- `datagum-dlq-dev`: Development dead letter queue - failed dev messages
+- `datagum-queue`: Production queue - used by deployed app
+- `datagum-dlq`: Production dead letter queue - failed messages
 
 ### Development Workflow
 
-**Option 1: UI Development (No Queue Testing)** - Default
+**Option 1: Fast Development (No Queue Consumer)** - Default
 ```bash
 pnpm dev
 ```
 
 **What this runs**:
-- **Web app**: Next.js dev server (local, port 4444) - Full HMR ✨
-- **Queue worker**: Wrangler dev remote mode with dev environment
+- Next.js dev server on port 4444 with Turbopack
 
 **What works**:
 - ✅ Full Next.js DX (HMR, Turbopack, fast refresh)
 - ✅ UI development, forms, pages, components
 - ✅ Database operations
-- ⚠️ Queue messages are logged but NOT processed
+- ✅ Queue producer (can send messages via `env.ARTICLE_ANALYSIS_QUEUE.send()`)
+- ⚠️ Queue consumer does NOT run (messages are enqueued but not processed)
 
-**Why queues don't work**:
-- Local Next.js uses Miniflare's LOCAL queue bindings
-- Queue worker listens to REMOTE `datagum-queue-dev` in Cloudflare
-- They're different queue instances - messages don't flow between them
+**Why queue consumer doesn't work**:
+- `next dev` runs Next.js development server (not Cloudflare Worker runtime)
+- Queue consumer only runs in Cloudflare Worker environment
 
-**When to use**: 95% of development (UI, forms, pages, components)
+**When to use**: 95% of development (UI, forms, pages, components, APIs)
 
 ---
 
-**Option 2: Queue Testing (Full E2E)** ✅
+**Option 2: Full Queue Testing** ✅
 ```bash
-# Terminal 1: Web app (remote)
-pnpm --filter web preview:dev
-
-# Terminal 2: Queue worker (remote)
-pnpm --filter queue-worker dev
+pnpm preview
 ```
 
 **What this runs**:
-- **Web app**: Wrangler dev remote mode with dev environment
-- **Queue worker**: Wrangler dev remote mode with dev environment
-- **Queue**: Both connected to `datagum-queue-dev` in Cloudflare
+- Builds Next.js app with OpenNext.js for Cloudflare
+- Runs Wrangler preview server on port 8787
 
 **What works**:
 - ✅ Full end-to-end queue testing
-- ✅ Jobs are processed in background
-- ✅ Uses dev queues (isolated from production)
-- ⚠️ No Next.js HMR (need to rebuild for changes)
+- ✅ Queue consumer processes messages from `datagum-queue`
+- ✅ Complete Cloudflare Worker environment (bindings, env vars, etc.)
+- ✅ Both producer and consumer work correctly
+- ⚠️ No HMR - need to rebuild for changes (`pnpm preview` runs build automatically)
 
-**When to use**: Testing job processing, background tasks, queue workflows
+**When to use**: Testing queue processing, background jobs, complete end-to-end workflows
+
+**Verified Working**: Complete submission → queue → processing flow confirmed in logs ✅
 
 ---
 
@@ -679,8 +686,8 @@ pnpm deploy
 ```
 
 **What this deploys**:
-- Web app: Deployed to Cloudflare Pages/Workers
-- Queue worker: Deployed to Cloudflare Workers
+- Next.js app: Deployed to Cloudflare as a Worker
+- Queue consumer: Included in same worker deployment (via worker-wrapper.ts)
 - Queues: Uses production queues (`datagum-queue`, `datagum-dlq`)
 
 ### Verifying Queue is Working
@@ -703,7 +710,43 @@ pnpm deploy
 
 ## Changelog
 
-### Version 2.1.0 (2025-10-21) ✅ DEV QUEUE SETUP
+### Version 3.0.0 (2025-10-21) ✅ MAJOR RELEASE
+**Removed Monorepo - Consolidated to Single Next.js App with OpenNext.js for Cloudflare**
+
+- **BREAKING**: Removed Turborepo monorepo architecture
+- **BREAKING**: Consolidated `apps/web` and `apps/queue-worker` into single Next.js app
+- **BREAKING**: Moved `packages/shared` types to `src/lib/shared/`
+- **NEW**: Worker wrapper pattern - `worker-wrapper.ts` extends OpenNext worker with queue consumer
+- **NEW**: Queue consumer handler in `src/queue/handler.ts` (routes messages to appropriate handlers)
+- **NEW**: Job Orchestrator implemented with placeholder phase logic in `src/queue/services/job-orchestrator.ts`
+- **UPDATED**: All file paths from monorepo structure to single app:
+  - `apps/web/wrangler.jsonc` → `wrangler.jsonc`
+  - `packages/shared/src/queue-messages.ts` → `src/lib/shared/queue-messages.ts`
+  - `packages/shared/src/utils.ts` → `src/lib/shared/utils.ts`
+  - `apps/queue-worker/src/services/job-orchestrator.ts` → `src/queue/services/job-orchestrator.ts`
+- **SIMPLIFIED**: Development workflow:
+  - `pnpm dev` (port 4444): Fast Next.js development, queue producer works, consumer doesn't run
+  - `pnpm preview` (port 8787): Full OpenNext.js build with working queue consumer
+  - `pnpm deploy`: Deploys single worker with both HTTP and queue handlers
+- **REMOVED**: All monorepo files (`turbo.json`, `pnpm-workspace.yaml`, `apps/`, `packages/`)
+- **REMOVED**: Separate queue worker deployment
+- **VERIFIED**: End-to-end queue flow confirmed working in preview mode ✅
+- **CONFIGURATION**: Single `wrangler.jsonc` with both producer and consumer bindings
+- **CONFIGURATION**: `worker-wrapper.ts` as main entry point (extends `.open-next/worker.js`)
+- **STATUS**: Queue infrastructure fully implemented and verified working
+
+**Architecture Benefits**:
+- Simpler codebase - no monorepo complexity
+- Single deployment - worker handles both HTTP requests and queue messages
+- Faster builds - no separate apps to coordinate
+- Better type sharing - direct imports instead of package dependencies
+
+**Migration Notes**:
+- Queue binding changed from `QUEUE` to `ARTICLE_ANALYSIS_QUEUE` (for clarity)
+- All Cloudflare types generated via `pnpm cf-typegen` into single `cloudflare-env.d.ts`
+- Rate limiting automatically disabled for local development (no separate config needed)
+
+### Version 2.1.0 (2025-10-21) ✅ DEV QUEUE SETUP (DEPRECATED - Monorepo Removed in v3.0.0)
 **Development Queues Implemented**
 
 - **ADDED**: Created dev queues in Cloudflare (`datagum-queue-dev`, `datagum-dlq-dev`)

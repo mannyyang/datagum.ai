@@ -1,6 +1,6 @@
 # Domain Model: Unit 1 - Article Submission & Validation
 
-**Version**: 1.1.0
+**Version**: 1.1.1
 **Last Updated**: 2025-10-21
 **Epic**: Epic 1 - Article Submission & Validation
 **User Stories**: US-1.1, US-1.2, US-1.3
@@ -497,6 +497,18 @@ await env.QUEUE.send(message)
 - **Cloudflare Queue**: Background job processing
 - **Cloudflare Workers**: Runtime environment
 
+### Frontend Libraries
+- **Next.js 15**: App Router, Server Actions, Client Components
+- **React 19**: Component rendering
+- **Tailwind CSS v4**: Styling with OKLCH color space
+- **shadcn/ui**: UI components with slate color theme
+
+### UI Theme Configuration
+- **Base Color**: Slate (OKLCH color space)
+- **Theme Variables**: Defined in `apps/web/src/app/globals.css:46-113`
+- **Dark Mode Support**: Full light/dark theme switching
+- **Form Components**: Styled using semantic color tokens (primary, border, input, ring)
+
 ### Internal Dependencies
 - None (this is the first unit in the flow)
 
@@ -506,6 +518,28 @@ await env.QUEUE.send(message)
 ---
 
 ## Changelog
+
+### Version 1.1.1 (2025-10-21) 🎨 STYLING UPDATE
+**UI Theme Migration: Zinc → Slate Colors**
+
+**Visual Enhancement**: Updated form UI theme from Zinc to Slate using OKLCH color space
+
+- **UPDATED**: Global CSS theme variables in `apps/web/src/app/globals.css`
+  - Light mode `:root` (lines 46-79): All color tokens updated to slate palette
+  - Dark mode `.dark` (lines 81-113): All color tokens updated to slate palette
+- **FORM STYLING**: SubmissionFormComponent will use updated semantic tokens:
+  - Input borders: `oklch(0.929 0.013 255.508)` (slate-200 in light mode)
+  - Focus rings: `oklch(0.704 0.04 256.788)` (slate-500 ring color)
+  - Primary button: `oklch(0.208 0.042 265.755)` (slate-900 background)
+  - Button text: `oklch(0.984 0.003 247.858)` (slate-50 foreground)
+- **ADDED**: Frontend Libraries and UI Theme Configuration sections in Dependencies
+  - Documented shadcn/ui usage with slate theme
+  - Specified Tailwind CSS v4 with OKLCH color space
+  - Noted dark mode support for form components
+- **COMPATIBILITY**: No breaking changes to component structure
+  - All form components automatically receive new colors via CSS custom properties
+  - Theme update is purely CSS-level change
+- **VISUAL IMPACT**: Slate provides cooler, more professional blue-gray tones for form inputs and buttons
 
 ### Version 1.1.0 (2025-10-21)
 **Turborepo Monorepo Migration**

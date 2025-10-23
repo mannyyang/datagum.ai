@@ -8,7 +8,7 @@
  */
 
 import { getCloudflareContext } from '@opennextjs/cloudflare'
-import type { ArticleAnalysisJobMessage } from '@/types/job-processing'
+import type { SubmissionJobMessage } from '@/lib/shared'
 
 /**
  * Enqueue an article analysis job
@@ -19,32 +19,41 @@ export async function enqueueArticleAnalysisJob(
   url: string
 ): Promise<void> {
   try {
+    console.log(`[QUEUE] Attempting to enqueue job for submission: ${submissionId}`)
+
     const { env } = await getCloudflareContext()
+
+    console.log(`[QUEUE] Got Cloudflare context, checking queue binding...`)
+    console.log(`[QUEUE] ARTICLE_ANALYSIS_QUEUE exists: ${!!env.ARTICLE_ANALYSIS_QUEUE}`)
 
     // Check if queue is configured
     if (!env.ARTICLE_ANALYSIS_QUEUE) {
       console.warn(
-        'Cloudflare Queue not configured. Job will not be processed in background.'
+        '[QUEUE] Cloudflare Queue not configured. Job will not be processed in background.'
       )
-      // In development, you might want to process synchronously
-      // Or return and handle this differently
       return
     }
 
-    const message: ArticleAnalysisJobMessage = {
-      submissionId,
-      url,
-      createdAt: new Date().toISOString(),
+    const message: SubmissionJobMessage = {
+      type: 'process-submission',
+      payload: {
+        submissionId,
+        url,
+      },
+      timestamp: Date.now(),
+      retryCount: 0,
     }
+
+    console.log(`[QUEUE] Sending message to queue:`, JSON.stringify(message, null, 2))
 
     // Send message to queue
     await env.ARTICLE_ANALYSIS_QUEUE.send(message)
 
     console.log(
-      `Enqueued article analysis job for submission: ${submissionId}`
+      `[QUEUE] ✅ Successfully enqueued article analysis job for submission: ${submissionId}`
     )
   } catch (error) {
-    console.error('Failed to enqueue article analysis job:', error)
+    console.error('[QUEUE] ❌ Failed to enqueue article analysis job:', error)
     throw new Error(
       `Failed to enqueue job: ${error instanceof Error ? error.message : 'Unknown error'}`
     )

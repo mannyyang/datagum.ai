@@ -1,7 +1,7 @@
 /**
- * Queue Worker - Processes background jobs from Cloudflare Queues
+ * Queue Consumer Handler - Processes background jobs from Cloudflare Queues
  *
- * This worker handles:
+ * This handler is exported from the Next.js worker and processes:
  * - Email sending
  * - Article scraping and processing
  * - Question generation
@@ -14,49 +14,41 @@ import {
   parseQueueMessage,
   isMessageType,
   retryWithBackoff,
-} from '@datagum/shared'
+} from '@/lib/shared'
 
-export interface Env {
-  // Cloudflare bindings
-  // DB?: D1Database
-  // KV?: KVNamespace
+/**
+ * Queue consumer handler
+ * Processes batches of messages from the queue
+ */
+export async function queueHandler(
+  batch: MessageBatch<QueueMessage>,
+  env: CloudflareEnv,
+  ctx: ExecutionContext
+): Promise<void> {
+  console.log(`[QUEUE] 🔔 Processing batch of ${batch.messages.length} messages`)
 
-  // Secrets (set via: pnpm wrangler secret put <KEY>)
-  OPENAI_API_KEY?: string
-  DATABASE_URL?: string
-}
+  for (const message of batch.messages) {
+    try {
+      console.log(`[QUEUE] 📨 Raw message body:`, JSON.stringify(message.body, null, 2))
 
-export default {
-  /**
-   * Queue consumer handler
-   * Processes batches of messages from the queue
-   */
-  async queue(
-    batch: MessageBatch<QueueMessage>,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<void> {
-    console.log(`Processing batch of ${batch.messages.length} messages`)
+      // Validate and parse the message
+      const parsedMessage = parseQueueMessage(message.body)
 
-    for (const message of batch.messages) {
-      try {
-        // Validate and parse the message
-        const parsedMessage = parseQueueMessage(message.body)
+      console.log(`[QUEUE] ✅ Message parsed successfully, type: ${parsedMessage.type}`)
 
-        // Process based on message type
-        await processMessage(parsedMessage, env, ctx)
+      // Process based on message type
+      await processMessage(parsedMessage, env, ctx)
 
-        // Message is automatically acknowledged on success
-        console.log(`Successfully processed ${parsedMessage.type} message`)
-      } catch (error) {
-        console.error('Error processing message:', error)
-        console.error('Message body:', message.body)
+      // Message is automatically acknowledged on success
+      console.log(`[QUEUE] ✅ Successfully processed ${parsedMessage.type} message`)
+    } catch (error) {
+      console.error('[QUEUE] ❌ Error processing message:', error)
+      console.error('[QUEUE] Message body:', message.body)
 
-        // Retry the message (will go to DLQ after max retries)
-        message.retry()
-      }
+      // Retry the message (will go to DLQ after max retries)
+      message.retry()
     }
-  },
+  }
 }
 
 /**
@@ -64,8 +56,8 @@ export default {
  */
 async function processMessage(
   message: QueueMessage,
-  env: Env,
-  ctx: ExecutionContext
+  env: CloudflareEnv,
+  _ctx: ExecutionContext // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<void> {
   if (isMessageType(message, 'process-submission')) {
     await handleSubmissionProcessingMessage(message, env)
@@ -80,7 +72,8 @@ async function processMessage(
   } else if (isMessageType(message, 'batch-process')) {
     await handleBatchProcessingMessage(message, env)
   } else {
-    throw new Error(`Unknown message type: ${(message as any).type}`)
+    const unknownMessage = message as { type: string }
+    throw new Error(`Unknown message type: ${unknownMessage.type}`)
   }
 }
 
@@ -93,14 +86,16 @@ async function processMessage(
  */
 async function handleSubmissionProcessingMessage(
   message: Extract<QueueMessage, { type: 'process-submission' }>,
-  env: Env
+  env: CloudflareEnv
 ): Promise<void> {
   const { submissionId, url } = message.payload
 
-  console.log(`Processing submission ${submissionId}: ${url}`)
+  console.log(`[QUEUE] 🔄 Processing submission ${submissionId}: ${url}`)
 
   // Import JobOrchestrator
   const { JobOrchestrator } = await import('./services/job-orchestrator')
+
+  console.log(`[QUEUE] 🏗️  Creating JobOrchestrator...`)
 
   // Create and execute the orchestrator
   const orchestrator = new JobOrchestrator({
@@ -111,7 +106,7 @@ async function handleSubmissionProcessingMessage(
 
   await orchestrator.execute()
 
-  console.log(`Submission ${submissionId} processed successfully`)
+  console.log(`[QUEUE] ✅ Submission ${submissionId} processed successfully`)
 }
 
 /**
@@ -119,15 +114,16 @@ async function handleSubmissionProcessingMessage(
  */
 async function handleEmailMessage(
   message: Extract<QueueMessage, { type: 'email' }>,
-  env: Env
+  _env: CloudflareEnv // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<void> {
-  const { to, subject, body, html } = message.payload
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { to, subject, body: _body, html: _html } = message.payload
 
   console.log(`Sending email to ${to}: ${subject}`)
 
   // TODO: Integrate with email service (SendGrid, Resend, etc.)
   await retryWithBackoff(async () => {
-    // Example: await sendEmail({ to, subject, body, html })
+    // Example: await sendEmail({ to, subject, body: _body, html: _html })
     console.log('Email sent successfully')
   })
 }
@@ -137,9 +133,10 @@ async function handleEmailMessage(
  */
 async function handleArticleScrapingMessage(
   message: Extract<QueueMessage, { type: 'scrape-article' }>,
-  env: Env
+  _env: CloudflareEnv // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<void> {
-  const { url, jobId, userId } = message.payload
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { url, jobId, userId: _userId } = message.payload
 
   console.log(`Scraping article: ${url} (Job ID: ${jobId})`)
 
@@ -150,7 +147,8 @@ async function handleArticleScrapingMessage(
       throw new Error(`Failed to fetch ${url}: ${response.statusText}`)
     }
 
-    const html = await response.text()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _html = await response.text()
 
     // TODO: Parse HTML and extract article content
     // TODO: Save to database
@@ -165,9 +163,10 @@ async function handleArticleScrapingMessage(
  */
 async function handleQuestionGenerationMessage(
   message: Extract<QueueMessage, { type: 'generate-questions' }>,
-  env: Env
+  env: CloudflareEnv
 ): Promise<void> {
-  const { articleId, content, jobId } = message.payload
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { articleId, content: _content, jobId: _jobId } = message.payload
 
   console.log(`Generating questions for article ${articleId}`)
 
@@ -188,7 +187,7 @@ async function handleQuestionGenerationMessage(
  */
 async function handleWebhookMessage(
   message: Extract<QueueMessage, { type: 'webhook' }>,
-  env: Env
+  _env: CloudflareEnv // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<void> {
   const { url, method, headers, body } = message.payload
 
@@ -214,7 +213,7 @@ async function handleWebhookMessage(
  */
 async function handleBatchProcessingMessage(
   message: Extract<QueueMessage, { type: 'batch-process' }>,
-  env: Env
+  _env: CloudflareEnv // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<void> {
   const { batchId, items, operation } = message.payload
 

@@ -61,17 +61,72 @@ pnpm lint                # Lint all apps
 pnpm type-check          # Type check all apps
 ```
 
-### Queue Setup (One-time)
-```bash
-# Create the queue (only need to do this once)
-pnpm wrangler queues create datagum-queue
+### Queue Setup (One-time) ⚠️ REQUIRED
 
-# Create dead letter queue (optional but recommended)
+**IMPORTANT**: Queues must be created in your Cloudflare account before the system will work.
+
+```bash
+# Production queues (for deployment)
+pnpm wrangler queues create datagum-queue
 pnpm wrangler queues create datagum-dlq
+
+# Development queues (for local development with --remote)
+pnpm wrangler queues create datagum-queue-dev
+pnpm wrangler queues create datagum-dlq-dev
 
 # Check queue status
 pnpm wrangler queues list
 ```
+
+**Expected Output**:
+```
+┌─────────────────┬───────────┬───────────┐
+│ name            │ producers │ consumers │
+├─────────────────┼───────────┼───────────┤
+│ datagum-queue     │ 0         │ 0         │
+│ datagum-dlq       │ 0         │ 0         │
+│ datagum-queue-dev │ 0         │ 0         │
+│ datagum-dlq-dev   │ 0         │ 0         │
+└─────────────────┴───────────┴───────────┘
+```
+
+### ✅ Local Queue Development - WORKS!
+
+**Queues now work during local development!** We use OpenNext.js Cloudflare's `experimental_remote` bindings feature.
+
+**Standard Development**:
+```bash
+pnpm dev
+```
+
+**What this does**:
+- **Web app**: Runs locally with Next.js dev server (port 4444) - Full HMR, Turbopack ✨
+- **Queue worker**: Runs remotely in Cloudflare (consumes `datagum-queue-dev`)
+- **Queue**: Web app connects to REMOTE `datagum-queue-dev` via experimental remote bindings
+- **Result**: Queue messages WORK! Jobs are processed in background ✅
+
+**Configuration** (Already set up):
+- `next.config.ts`: Enabled `remoteBindings: true` in `initOpenNextCloudflareForDev()`
+- `wrangler.jsonc`: Added `experimental_remote: true` to queue producer binding
+- Default queue: `datagum-queue-dev` (isolated from production)
+
+**Benefits**:
+- ✅ Full Next.js DX (HMR, Turbopack, fast refresh)
+- ✅ Queue messages processed in real Cloudflare environment
+- ✅ Single command - no coordination needed
+- ✅ Safe - uses dev queue, isolated from production
+
+**Production Deployment**:
+```bash
+pnpm deploy
+```
+Uses production queues: `datagum-queue` and `datagum-dlq`
+
+**How It Works**:
+- OpenNext.js Cloudflare's remote bindings feature (beta) connects local Next.js to remote Cloudflare resources
+- Web app sends messages to `datagum-queue-dev` in Cloudflare (not local Miniflare)
+- Queue worker consumes from the same `datagum-queue-dev` in Cloudflare
+- Reference: https://developers.cloudflare.com/changelog/2025-06-18-remote-bindings-beta/
 
 ### Database Commands
 ```bash
@@ -457,18 +512,50 @@ export default {
 
 ### Queue Configuration
 
+#### Local Development - Remote Bindings
+
+**QUEUES WORK IN LOCAL DEVELOPMENT!** We use OpenNext.js Cloudflare's `experimental_remote` bindings feature:
+
+- **Web App** (`next dev`): Runs locally with full Next.js DX (HMR, Turbopack)
+- **Queue Binding**: Connects to REMOTE `datagum-queue-dev` in Cloudflare
+- **Queue Worker**: Runs remotely in Cloudflare, consumes from same `datagum-queue-dev`
+- **Result**: Single `pnpm dev` command enables full queue testing!
+
 **Producer** (`apps/web/wrangler.jsonc`):
 ```jsonc
 {
   "queues": {
     "producers": [
       {
-        "binding": "QUEUE",
-        "queue": "datagum-queue"
+        "binding": "ARTICLE_ANALYSIS_QUEUE",
+        "queue": "datagum-queue-dev",
+        "experimental_remote": true  // Connects to remote queue in dev
       }
     ]
+  },
+  "env": {
+    "production": {
+      "queues": {
+        "producers": [
+          {
+            "binding": "ARTICLE_ANALYSIS_QUEUE",
+            "queue": "datagum-queue"  // Production queue
+          }
+        ]
+      }
+    }
   }
 }
+```
+
+**Remote bindings enabled** (`apps/web/next.config.ts`):
+```typescript
+import { initOpenNextCloudflareForDev } from '@opennextjs/cloudflare';
+initOpenNextCloudflareForDev({
+  experimental: {
+    remoteBindings: true,  // Enable remote Cloudflare resources in dev
+  },
+});
 ```
 
 **Consumer** (`apps/queue-worker/wrangler.jsonc`):
@@ -484,6 +571,29 @@ export default {
         "dead_letter_queue": "datagum-dlq"
       }
     ]
+  },
+  "env": {
+    "dev": {
+      "name": "datagum-queue-worker-dev",
+      "queues": {
+        "consumers": [
+          {
+            "queue": "datagum-queue-dev",  // Dev queue
+            "max_retries": 3,
+            "dead_letter_queue": "datagum-dlq-dev"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+**Queue Worker Dev Script** (`apps/queue-worker/package.json`):
+```json
+{
+  "scripts": {
+    "dev": "wrangler dev --remote --env dev"
   }
 }
 ```

@@ -13,18 +13,16 @@
  * 6. Mark as completed or failed
  */
 
-import type { Env } from '../index'
-
 export interface JobOrchestratorOptions {
   submissionId: string
   url: string
-  env: Env
+  env: CloudflareEnv
 }
 
 export class JobOrchestrator {
   private submissionId: string
   private url: string
-  private env: Env
+  private env: CloudflareEnv
   private startTime: number
 
   constructor(options: JobOrchestratorOptions) {
@@ -114,10 +112,10 @@ export class JobOrchestrator {
   /**
    * Phase 2: Generate search questions
    */
-  private async runQuestionGenerationPhase(article: ScrapedArticle): Promise<string[]> {
+  private async runQuestionGenerationPhase(_article: ScrapedArticle): Promise<string[]> {
     // TODO: Implement question generation service (Unit 3)
     // const generator = new QuestionGeneratorService(this.env)
-    // const result = await generator.generateQuestions(article, 10)
+    // const result = await generator.generateQuestions(_article, 10)
     //
     // // Store in database
     // await db.update(submissions).set({
@@ -161,11 +159,11 @@ export class JobOrchestrator {
   private async markFailed(error: unknown): Promise<void> {
     await this.updateStatus('failed')
 
-    const errorMessage = error instanceof Error ? error.message : String(error)
+    const _errorMessage = error instanceof Error ? error.message : String(error)
 
     // TODO: Store error in database
     // await db.update(submissions).set({
-    //   scrapingError: errorMessage,
+    //   scrapingError: _errorMessage,
     // })
   }
 

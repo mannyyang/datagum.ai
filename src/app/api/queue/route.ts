@@ -13,9 +13,7 @@ import {
   WebhookMessage,
   BatchProcessingMessage,
   generateUUID,
-} from '@datagum/shared'
-
-export const runtime = 'edge'
+} from '@/lib/shared'
 
 /**
  * Send a message to the queue
@@ -23,7 +21,7 @@ export const runtime = 'edge'
 export async function POST(request: Request) {
   try {
     const { env } = await getCloudflareContext()
-    const body = await request.json()
+    const body = await request.json() as { type?: string; [key: string]: unknown }
 
     // Validate request
     if (!body.type) {
@@ -118,7 +116,7 @@ export async function POST(request: Request) {
     }
 
     // Send to queue
-    await env.QUEUE.send(message)
+    await env.ARTICLE_ANALYSIS_QUEUE.send(message)
 
     return Response.json({
       success: true,
@@ -143,7 +141,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const { env } = await getCloudflareContext()
-    const body = await request.json()
+    const body = await request.json() as { messages?: unknown[] }
 
     if (!Array.isArray(body.messages)) {
       return Response.json(
@@ -153,7 +151,7 @@ export async function PUT(request: Request) {
     }
 
     // Send batch
-    await env.QUEUE.sendBatch(body.messages)
+    await env.ARTICLE_ANALYSIS_QUEUE.sendBatch(body.messages as MessageSendRequest<unknown>[])
 
     return Response.json({
       success: true,

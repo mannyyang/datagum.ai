@@ -69,7 +69,7 @@ export const WebhookMessageSchema = z.object({
   payload: z.object({
     url: z.string().url(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     body: z.any().optional(),
   }),
   timestamp: z.number(),

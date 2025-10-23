@@ -24,7 +24,16 @@
       "Bash(pnpm add -D turbo)",
       "SlashCommand(/domain update with changes from monorepo setup and cloudflare queues integration)",
       "Bash(pnpm install)",
-      "Bash(pnpm dev)"
+      "Bash(pnpm dev)",
+      "Bash(pnpm wrangler queues list)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "Bash(cat package.json)",
+      "WebFetch(domain:opennext.js.org)",
+      "Bash(curl -s -X POST http://localhost:4444/api/submit -H \"Content-Type: application/json\" -d '{\"\"\"\"url\"\"\"\":\"\"\"\"https://example.com/test-article\"\"\"\"}')",
+      "Bash(pnpm wrangler dev --remote --env dev)",
+      "Bash(pkill -f \"next dev\\|wrangler dev\")",
+      "Bash(pnpm opennextjs-cloudflare --help)",
+      "Bash(pnpm preview)"
     ],
     "deny": [],
     "ask": []

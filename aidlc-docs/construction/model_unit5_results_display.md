@@ -1,6 +1,6 @@
 # Domain Model: Unit 5 - Results Display & Analysis
 
-**Version**: 1.2.0
+**Version**: 1.2.1
 **Last Updated**: 2025-10-21
 **Epic**: Epic 5 - Results Display & Analysis
 **User Stories**: US-5.1, US-5.2, US-5.3, US-5.4, US-5.5
@@ -278,16 +278,21 @@ This domain model defines the frontend and API components required to display co
 
 ---
 
-### 6. CoverageGapsComponent
+### 6. CoverageGapsComponent ✨ ENHANCED
 **Type**: Frontend UI Component
-**Responsibility**: Displays questions where article wasn't cited
+**Location**: `apps/web/src/components/coverage-gaps.tsx` (to be created)
+**Responsibility**: Displays questions where article wasn't cited with skeleton loading
+
+**Implementation Status**: ⚠️ Needs creation with skeleton support
 
 **Attributes**:
-- `gaps`: CoverageGap[] from API
+- `gaps`: CoverageGap[] from API (optional - can be undefined/empty during loading)
+- `isLoading`: boolean - Whether data is still loading
 
 **Behaviors**:
 - `renderGapItem(gap)`: JSX - Displays one gap
 - `extractDomain(url)`: string - Gets domain from URL
+- `renderSkeletonGap()`: JSX - Skeleton placeholder for gap item
 
 **Displayed Information** (per gap):
 - The question that didn't return the article
@@ -299,22 +304,43 @@ This domain model defines the frontend and API components required to display co
 - Clear indication these are opportunities
 - Actionable framing ("opportunities for optimization")
 
+**Progressive Loading Behavior**:
+- When `gaps` is null/undefined: Show 3 skeleton gap items
+- When `gaps` is partial: Show real data for available gaps + skeletons
+- When `gaps` is complete: Show all real data
+- When `gaps` is empty array: Show "No coverage gaps - great performance!" message
+- Fade-in animation as each gap appears
+
+**Skeleton Pattern**:
+- Show skeleton rectangles for question text
+- Show skeleton list items for competing domains
+- Maintain yellow/warning styling for consistency
+
 **Interactions**:
-- Receives gap data from `ResultsPage`
-- Highlights areas for content improvement
+- Receives optional gap data from `ResultsPage`
+- Handles loading states and empty states gracefully
+- Uses shadcn/ui Skeleton component
+- Highlights areas for content improvement progressively
 
 ---
 
-### 7. DetailedResultsComponent
+### 7. DetailedResultsComponent ✨ ENHANCED
 **Type**: Frontend UI Component
-**Responsibility**: Displays expandable question-by-question results
+**Location**: `apps/web/src/components/detailed-results.tsx` (to be created)
+**Responsibility**: Displays expandable question-by-question results with progressive loading
+
+**Implementation Status**: ⚠️ Needs creation with skeleton support
 
 **Attributes**:
-- `results`: ProcessedResult[] from API
+- `results`: ProcessedResult[] from API (optional - can be undefined/partial during loading)
+- `totalExpectedResults`: number - Total questions expected (e.g., 10)
+- `isLoading`: boolean - Whether still processing
 
 **Behaviors**:
 - `renderResultItem(result)`: JSX - One question result
 - `getResultColor(found)`: string - Green if found, gray if not
+- `renderSkeletonResult()`: JSX - Skeleton placeholder for result
+- `renderProcessingResult(questionNum)`: JSX - Shows "Processing question X..." state
 
 **Displayed Information** (per question):
 - Question text
@@ -328,59 +354,119 @@ This domain model defines the frontend and API components required to display co
 - `<details>` HTML element for expand/collapse
 - Color-coded cards (green for success, gray for not found)
 - Citations displayed as list with links
+- Skeleton cards for questions not yet processed
+
+**Progressive Loading Behavior**:
+- **Initial State** (0 results): Show 10 skeleton result cards
+- **Partial State** (3 results): Show 3 real result cards + 7 skeleton cards
+- **Processing State**: Show subtle pulsing animation on skeleton cards being processed
+- **Complete State** (10 results): All skeleton cards replaced with real data
+- **Live Counter**: "Showing 3 of 10 results" updates in real-time
+
+**Skeleton Pattern**:
+```tsx
+{results.map(result => (
+  <ResultCard key={result.id} data={result} />
+))}
+{Array.from({ length: totalExpectedResults - results.length }).map((_, i) => (
+  <SkeletonResultCard key={`skeleton-${i}`} />
+))}
+```
+
+**Processing Indicator**:
+- Show subtle loading spinner next to "Test Results" heading while loading
+- Display count: "Showing X of 10 results"
+- Animate new results fading in as they arrive
 
 **Interactions**:
-- Receives processed results from `ResultsPage`
-- Provides drill-down detail view
+- Receives partial or complete results from `ResultsPage`
+- Automatically adds new results as they stream in
+- Uses shadcn/ui Skeleton component for loading states
+- Provides drill-down detail view with progressive disclosure
 
 ---
 
 ## Component Interactions
 
-### Results Display Flow Sequence
+### Progressive Loading Flow Sequence (v1.2.0) ✨
 
 1. **User Lands on Results Page**:
    - URL: `/results/{submissionId}`
-   - `ResultsPage` component mounts
+   - `ResultsPage` component mounts **immediately**
    - Extract `submissionId` from URL params
+   - **Immediately render full page layout with all sections**
 
-2. **Initial Data Fetch**:
+2. **Initial Page Render** (Instant, 0ms):
+   - Header section renders (may have URL, no title yet)
+   - `SummaryStatsComponent` renders with 4 skeleton cards
+   - `CompetitorsComponent` renders with 5 skeleton rows
+   - `CoverageGapsComponent` renders with skeleton gap items
+   - `DetailedResultsComponent` renders with 10 skeleton result cards
+   - Page is fully visible to user with skeleton placeholders
+   - User sees page structure immediately - no blank screen
+
+3. **Initial Data Fetch** (Background):
    - `ResultsPage.fetchResults()` calls GET `/api/results/{id}`
    - `ResultsAPIHandler` processes request
+   - Returns whatever data is available (may be partial)
 
-3. **API Processing**:
-   - Fetch submission record
-   - Fetch all test results for submission
-   - Calculate summary statistics
-   - Analyze competitors
-   - Identify coverage gaps
-   - Return comprehensive response
+4. **API Response Handling**:
+   - Fetch submission record (always available)
+   - Fetch test results for submission (may be empty or partial)
+   - Calculate summary statistics (based on available results)
+   - Analyze competitors (based on available results)
+   - Identify coverage gaps (based on available results)
+   - Return response with `status` indicator
 
-4. **Check Status**:
-   - If status is 'pending' or 'processing':
-     - Set 3-second polling timer
-     - Render `LoadingStateComponent`
-   - If status is 'completed':
-     - Render full results
-   - If status is 'failed':
-     - Render `FailedStateComponent`
+5. **Progressive Data Population**:
+   - **Submission Data Available**:
+     - Replace header skeleton with article title
+     - Update URL and metadata
+   - **Partial Results Available** (e.g., 3 of 10 questions complete):
+     - Replace 3 result skeletons with real result cards (fade-in animation)
+     - Update summary stats with partial data (3/10 complete)
+     - Keep 7 skeleton cards visible for pending questions
+     - Show "Processing 3 of 10 questions..." status
+   - **More Results Arrive**:
+     - Progressively replace more skeletons with real data
+     - Update statistics in real-time
+     - Smooth transitions between skeleton and data
 
-5. **Polling Loop** (if processing):
+6. **Polling Loop** (if status is 'pending' or 'processing'):
    - Every 3 seconds, call `fetchResults()` again
-   - Check status
-   - Continue until 'completed' or 'failed'
+   - Merge new data with existing state
+   - Replace skeletons with new data as it arrives
+   - Update live counters ("7 of 10 complete")
+   - Continue until status is 'completed' or 'failed'
 
-6. **Display Results** (when completed):
-   - Render `SummaryStatsComponent` with summary
-   - Render `CompetitorsComponent` with top competitors
-   - Render `CoverageGapsComponent` with gaps
-   - Render `DetailedResultsComponent` with all questions
-   - Render CTAs for lead generation
+7. **Completion State** (status === 'completed'):
+   - All skeletons replaced with real data
+   - Stop polling
+   - Remove loading indicators
+   - Full results displayed with all sections populated
+   - Competitors and gaps sections fully rendered
+   - Enable CTA interactions
 
-7. **User Interaction**:
-   - User can expand/collapse detailed results
-   - User can click CTA buttons
-   - User can share results URL
+8. **Failed State** (status === 'failed'):
+   - Replace entire page content with `FailedStateComponent`
+   - Show error message from API
+   - Provide retry/navigation options
+
+9. **User Interaction** (Throughout Process):
+   - User can see page structure immediately
+   - User can expand/collapse results as they appear
+   - User can scroll through partial data
+   - User sees real-time progress of analysis
+   - No jarring transitions - smooth skeleton-to-data fades
+   - Better perceived performance than blank loading screen
+
+### Key Benefits of Progressive Loading:
+- **Instant Page Load**: User sees structure in <100ms
+- **Progressive Disclosure**: Data appears as it becomes available
+- **No Blank Screens**: Always something visible on screen
+- **Better UX**: Similar to modern apps (Twitter, LinkedIn)
+- **Reduced Perceived Wait Time**: User engaged with UI immediately
+- **Graceful Degradation**: Works even if API is slow
 
 ---
 
@@ -429,6 +515,81 @@ avgResponseTime = average of all responseTimeMs values
 
 ---
 
+## Implementation Details (v1.2.0)
+
+### Progressive Loading Implementation Guide
+
+**File**: `apps/web/src/components/results-view.tsx`
+
+**Key Implementation Points**:
+
+1. **Immediate Rendering**:
+   - Component renders full layout on mount (no conditional "if loading, return spinner")
+   - All sections visible immediately with skeleton states
+   - Use optional chaining for data: `data?.submission?.title`
+
+2. **Skeleton Components**:
+   - Import: `import { Skeleton } from '@/components/ui/skeleton'`
+   - Pattern: `{data?.summary ? <RealData /> : <Skeleton className="..." />}`
+   - Maintain same dimensions as real components for smooth transitions
+
+3. **Data Merging**:
+   - Don't replace entire state on each poll
+   - Merge new data with existing: `setData(prev => ({ ...prev, ...newData }))`
+   - Preserve user interactions (expanded details, scroll position)
+
+4. **Fade-in Animations**:
+   - Use Framer Motion or CSS transitions
+   - Example: `className="animate-in fade-in duration-300"`
+   - Subtle, not distracting
+
+5. **Loading Indicators**:
+   - Small spinner next to section headings while loading
+   - Progress text: "Loading 7 of 10 results..."
+   - Remove when status === 'completed'
+
+**Example Pattern**:
+```tsx
+// Header with progressive loading
+<div className="mb-8">
+  <h1 className="text-3xl font-bold mb-2">Analysis Results</h1>
+  {data?.submission?.articleTitle ? (
+    <a href={data.submission.url} className="...">
+      {data.submission.articleTitle}
+    </a>
+  ) : (
+    <Skeleton className="h-6 w-96" />
+  )}
+</div>
+
+// Statistics with progressive loading
+<div className="grid md:grid-cols-4 gap-4 mb-8">
+  {data?.statistics ? (
+    <SummaryStatsComponent statistics={data.statistics} />
+  ) : (
+    <SkeletonStats />
+  )}
+</div>
+```
+
+**Polling Logic Update**:
+```tsx
+// Old approach - show loading screen
+if (!data || isLoading) return <LoadingScreen />
+
+// New approach - progressive updates
+useEffect(() => {
+  const interval = setInterval(() => {
+    if (data?.submission.status !== 'completed') {
+      fetchResults() // Merges new data into state
+    }
+  }, 3000)
+  return () => clearInterval(interval)
+}, [data?.submission.status])
+```
+
+---
+
 ## Dependencies
 
 ### Internal Dependencies
@@ -438,9 +599,20 @@ avgResponseTime = average of all responseTimeMs values
 ### Frontend Libraries
 - **Next.js 15**: App Router, useEffect, useParams
 - **React 19**: Component rendering
-- **Tailwind CSS**: Styling
-- **shadcn/ui**: UI components
-- **Framer Motion**: Animations (optional)
+- **Tailwind CSS v4**: Styling with OKLCH color space
+- **shadcn/ui**: UI components (especially Skeleton) with slate color theme
+- **Framer Motion**: Animations for fade-in transitions (recommended)
+
+### UI Theme Configuration
+- **Base Color**: Slate (OKLCH color space)
+- **Theme Variables**: Defined in `apps/web/src/app/globals.css:46-113`
+- **Dark Mode Support**: Full light/dark theme switching
+- **Color Tokens**: Custom CSS variables for semantic color usage
+  - Background, foreground, card, popover
+  - Primary, secondary, muted, accent
+  - Destructive, border, input, ring
+  - Chart colors (5 variants)
+  - Sidebar colors (dedicated palette)
 
 ---
 
@@ -459,6 +631,84 @@ avgResponseTime = average of all responseTimeMs values
 ---
 
 ## Changelog
+
+### Version 1.2.1 (2025-10-21) 🎨 STYLING UPDATE
+**UI Theme Migration: Zinc → Slate Colors**
+
+**Visual Enhancement**: Migrated color theme from Zinc to Slate using OKLCH color space
+
+- **UPDATED**: Global CSS theme variables in `apps/web/src/app/globals.css`
+  - Light mode `:root` (lines 46-79): All color tokens updated to slate palette
+  - Dark mode `.dark` (lines 81-113): All color tokens updated to slate palette
+  - Border radius maintained at `0.625rem` for consistency
+- **COLOR CHANGES**: Updated all semantic color tokens:
+  - Primary colors: `oklch(0.208 0.042 265.755)` (slate-900 equivalent)
+  - Secondary/muted: `oklch(0.968 0.007 247.896)` (slate-100 equivalent)
+  - Borders: `oklch(0.929 0.013 255.508)` (slate-200 equivalent)
+  - Sidebar colors: Dedicated slate palette for sidebar components
+  - Chart colors: Maintained existing vibrant palette for data visualization
+- **DARK MODE**: Updated to slate dark variants:
+  - Background: `oklch(0.129 0.042 264.695)` (slate-950 equivalent)
+  - Card: `oklch(0.208 0.042 265.755)` (slate-900 equivalent)
+  - Borders: `oklch(1 0 0 / 10%)` (white with 10% opacity for dark mode)
+- **ADDED**: UI Theme Configuration section in Dependencies
+  - Documented theme location and structure
+  - Listed all semantic color token categories
+  - Specified OKLCH color space usage
+  - Documented light/dark mode support
+- **COMPATIBILITY**: No breaking changes to component structure
+  - All components continue using same semantic color variables
+  - Theme update is purely CSS-level change
+  - Components automatically receive new colors via CSS custom properties
+- **VISUAL IMPACT**:
+  - Slate provides slightly cooler, more neutral blue-gray tones vs zinc
+  - Better contrast in dark mode for improved readability
+  - Maintains professional, modern aesthetic
+  - Consistent with design system best practices
+
+**Design Rationale**: Slate color palette provides a cooler, more sophisticated blue-gray tone compared to zinc, offering better visual hierarchy and improved accessibility in both light and dark modes.
+
+### Version 1.2.0 (2025-10-21) ✨ NEW FEATURE
+**Progressive Loading with Skeleton States**
+
+**UX Enhancement**: Eliminated separate loading screen in favor of progressive disclosure pattern
+
+- **REMOVED**: LoadingStateComponent (Component 3) - no longer needed
+- **ENHANCED**: ResultsPage (Component 2) - added progressive loading support
+  - Renders full page layout immediately with skeleton placeholders
+  - Polls for data and progressively replaces skeletons with real content
+  - No separate loading screen - results page IS the loading screen
+  - Added `mergePartialResults()` behavior for handling streaming data
+- **ENHANCED**: SummaryStatsComponent (Component 4) - skeleton loading support
+  - Accepts optional `summary` prop (undefined during loading)
+  - Renders 4 skeleton cards when data not available
+  - Smooth fade-in transitions when data arrives
+  - Live-updating counters as questions complete
+- **ENHANCED**: CompetitorsComponent (Component 5) - skeleton loading support
+  - Renders skeleton rows for competitors not yet loaded
+  - Progressive rendering as competitor data arrives
+  - Animated transitions from skeleton to data
+- **ENHANCED**: CoverageGapsComponent (Component 6) - skeleton loading support
+  - Skeleton gap items during loading
+  - Progressive disclosure of coverage opportunities
+  - Handles empty state with positive message
+- **ENHANCED**: DetailedResultsComponent (Component 7) - skeleton loading support
+  - Renders 10 skeleton result cards initially
+  - Replaces skeletons with real results as they stream in
+  - Shows "X of 10 results" live counter
+  - Partial results visible while others process
+- **UPDATED**: Component Interactions - completely rewritten for progressive loading flow
+  - Documented 9-step progressive loading sequence
+  - Instant page render with skeleton states
+  - Real-time data population as API returns results
+  - No blank loading screens
+  - Better perceived performance
+- **ADDED**: Key benefits section documenting UX improvements
+- **ADDED**: Skeleton pattern code examples for each component
+- **REQUIREMENT**: All components must use shadcn/ui Skeleton component
+- **REQUIREMENT**: Smooth fade-in animations for skeleton-to-data transitions
+
+**Design Philosophy**: Modern web app pattern (similar to Twitter, LinkedIn feeds) where structure loads instantly and content populates progressively
 
 ### Version 1.1.0 (2025-10-21)
 **Turborepo Monorepo Migration**

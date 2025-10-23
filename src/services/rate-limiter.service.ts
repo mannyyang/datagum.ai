@@ -34,9 +34,15 @@ export async function checkRateLimit(userIp: string): Promise<void> {
 
 /**
  * Check if rate limiting is enabled
- * Disabled in development mode
+ * Disabled in development mode or when explicitly disabled via env var
  */
 function isRateLimitEnabled(): boolean {
+  // Explicit disable via environment variable
+  if (process.env.DISABLE_RATE_LIMIT === 'true') {
+    return false
+  }
+
+  // Automatically disabled in non-production environments
   return process.env.NODE_ENV === 'production'
 }
 

@@ -1,22 +1,69 @@
 # Domain Model: Unit 6 - Background Job Processing
 
-**Version**: 2.0.0
+**Version**: 3.0.0
 **Last Updated**: 2025-10-21
 **Epic**: Epic 6 - Background Job Processing
 **User Stories**: US-6.1, US-6.2, US-6.3, US-6.4
-**Status**: ✅ Implemented (Turborepo Monorepo Architecture)
+**Status**: ✅ Fully Implemented (Cloudflare Queue Infrastructure Complete, Worker Wrapper Pattern, Local Preview Working)
 
 ---
 
 ## Executive Summary
 
-This domain model defines the background job processing system that orchestrates the entire article analysis workflow. Using **Cloudflare Queues** in a **Turborepo monorepo** architecture, the system processes submissions asynchronously through scraping, question generation, and search testing phases with retry logic and error handling.
+This domain model defines the background job processing system that orchestrates the entire article analysis workflow. Using **Cloudflare Queues** with **OpenNext.js for Cloudflare**, the system processes submissions asynchronously through scraping, question generation, and search testing phases with retry logic and error handling.
 
-### Architecture (v2.0.0)
-- **Producer**: Next.js web app (`apps/web`) sends messages to Cloudflare Queue
-- **Consumer**: Dedicated Cloudflare Worker (`apps/queue-worker`) processes queue messages
-- **Shared Types**: Type-safe message definitions in `packages/shared`
-- **Monorepo**: Turborepo manages both apps with single `pnpm dev` command
+### Architecture (v3.0.0)
+- **Producer**: Next.js app sends messages to Cloudflare Queue via `env.ARTICLE_ANALYSIS_QUEUE.send()`
+- **Consumer**: Custom worker wrapper (`worker-wrapper.ts`) extends OpenNext worker to add queue handler
+- **Shared Types**: Type-safe message definitions in `src/lib/shared/queue-messages.ts`
+- **Single App**: Consolidated Next.js app with OpenNext.js for Cloudflare deployment
+
+### ✅ QUEUE PROCESSING VERIFIED WORKING!
+**Complete end-to-end queue flow confirmed in local preview!**
+
+**How It Works**:
+- **Development** (`pnpm dev` on port 4444): Fast Next.js with Turbopack, queue producer works, consumer doesn't run
+- **Testing** (`pnpm preview` on port 8787): OpenNext.js Cloudflare preview with full queue consumer processing
+- **Production** (`pnpm deploy`): Deployed to Cloudflare with real queues
+
+**Worker Wrapper Pattern**:
+```typescript
+// worker-wrapper.ts - Extends OpenNext worker with queue consumer
+import { queueHandler } from './src/queue/handler'
+import worker from './.open-next/worker.js'
+
+export default {
+  ...worker,  // All OpenNext HTTP handlers
+  async queue(batch, env, ctx) {  // Custom queue consumer
+    return queueHandler(batch, env, ctx)
+  },
+}
+```
+
+**Configuration**:
+1. `wrangler.jsonc`: Both producer and consumer bindings
+   ```jsonc
+   {
+     "main": "worker-wrapper.ts",  // Custom wrapper instead of .open-next/worker.js
+     "queues": {
+       "producers": [{ "binding": "ARTICLE_ANALYSIS_QUEUE", "queue": "datagum-queue" }],
+       "consumers": [{ "queue": "datagum-queue", "max_batch_size": 10, ... }]
+     }
+   }
+   ```
+
+2. `next.config.ts`: OpenNext.js Cloudflare initialization
+   ```typescript
+   import { initOpenNextCloudflareForDev } from '@opennextjs/cloudflare'
+   initOpenNextCloudflareForDev()
+   ```
+
+**Benefits**:
+- ✅ Fast development with `next dev` (HMR, Turbopack, fast refresh)
+- ✅ Full queue testing with `opennextjs-cloudflare preview`
+- ✅ Single codebase - no monorepo complexity
+- ✅ Type-safe queue messages with Zod validation
+- ✅ Automatic retry and dead letter queue handling
 
 ### Key Business Requirements
 - Consume submissions from Cloudflare Queue
@@ -539,7 +586,176 @@ failed → processing (retry)
 
 ---
 
+## Queue Setup Requirements
+
+### One-Time Cloudflare Setup ✅ COMPLETED
+
+**IMPORTANT**: Queues must be created in your Cloudflare account before the system will work.
+
+```bash
+# Production queues (for deployment)
+pnpm wrangler queues create datagum-queue
+pnpm wrangler queues create datagum-dlq
+
+# Development queues (for local development with --remote)
+pnpm wrangler queues create datagum-queue-dev
+pnpm wrangler queues create datagum-dlq-dev
+
+# Verify queues were created
+pnpm wrangler queues list
+```
+
+**Expected Output**:
+```
+┌─────────────────┬─────────────────────────────┬───────────┬───────────┐
+│ name            │ created_on                  │ producers │ consumers │
+├─────────────────┼─────────────────────────────┼───────────┼───────────┤
+│ datagum-queue     │ 2025-10-21...             │ 1         │ 1         │
+│ datagum-dlq       │ 2025-10-21...             │ 0         │ 0         │
+│ datagum-queue-dev │ 2025-10-21T21:00:11...    │ 0         │ 0         │
+│ datagum-dlq-dev   │ 2025-10-21T21:00:25...    │ 0         │ 0         │
+└─────────────────┴─────────────────────────────┴───────────┴───────────┘
+```
+
+**Queue Purpose**:
+- `datagum-queue`: Production queue - used by deployed web app
+- `datagum-dlq`: Production dead letter queue - failed production messages
+- `datagum-queue-dev`: Development queue - used during local development with `--remote` flag
+- `datagum-dlq-dev`: Development dead letter queue - failed dev messages
+
+### Development Workflow
+
+**Option 1: UI Development (No Queue Testing)** - Default
+```bash
+pnpm dev
+```
+
+**What this runs**:
+- **Web app**: Next.js dev server (local, port 4444) - Full HMR ✨
+- **Queue worker**: Wrangler dev remote mode with dev environment
+
+**What works**:
+- ✅ Full Next.js DX (HMR, Turbopack, fast refresh)
+- ✅ UI development, forms, pages, components
+- ✅ Database operations
+- ⚠️ Queue messages are logged but NOT processed
+
+**Why queues don't work**:
+- Local Next.js uses Miniflare's LOCAL queue bindings
+- Queue worker listens to REMOTE `datagum-queue-dev` in Cloudflare
+- They're different queue instances - messages don't flow between them
+
+**When to use**: 95% of development (UI, forms, pages, components)
+
+---
+
+**Option 2: Queue Testing (Full E2E)** ✅
+```bash
+# Terminal 1: Web app (remote)
+pnpm --filter web preview:dev
+
+# Terminal 2: Queue worker (remote)
+pnpm --filter queue-worker dev
+```
+
+**What this runs**:
+- **Web app**: Wrangler dev remote mode with dev environment
+- **Queue worker**: Wrangler dev remote mode with dev environment
+- **Queue**: Both connected to `datagum-queue-dev` in Cloudflare
+
+**What works**:
+- ✅ Full end-to-end queue testing
+- ✅ Jobs are processed in background
+- ✅ Uses dev queues (isolated from production)
+- ⚠️ No Next.js HMR (need to rebuild for changes)
+
+**When to use**: Testing job processing, background tasks, queue workflows
+
+---
+
+**Option 3: Production Deployment**
+```bash
+pnpm deploy
+```
+
+**What this deploys**:
+- Web app: Deployed to Cloudflare Pages/Workers
+- Queue worker: Deployed to Cloudflare Workers
+- Queues: Uses production queues (`datagum-queue`, `datagum-dlq`)
+
+### Verifying Queue is Working
+
+1. **Check Producer Logs**:
+   - Web app should log: `Enqueued article analysis job for submission: {id}`
+   - No error messages about queue not configured
+
+2. **Check Consumer Logs**:
+   - Queue worker should log: `Processing batch of X messages`
+   - Queue worker should log: `Processing submission {id}: {url}`
+
+3. **Check Queue Stats**:
+   ```bash
+   pnpm wrangler queues list
+   # Should show producers: 1, consumers: 1
+   ```
+
+---
+
 ## Changelog
+
+### Version 2.1.0 (2025-10-21) ✅ DEV QUEUE SETUP
+**Development Queues Implemented**
+
+- **ADDED**: Created dev queues in Cloudflare (`datagum-queue-dev`, `datagum-dlq-dev`)
+- **ADDED**: Environment-specific queue configuration in wrangler.jsonc files
+  - Production: `datagum-queue` (default)
+  - Development: `datagum-queue-dev` (when using `--env dev`)
+- **UPDATED**: Queue worker dev script to use remote mode with dev environment
+  - Changed from `wrangler dev` to `wrangler dev --remote --env dev`
+  - Now `pnpm dev` automatically uses dev queues for queue worker
+- **UPDATED**: Web app with preview:dev script for remote testing
+- **SIMPLIFIED**: Development workflow - single `pnpm dev` command runs both apps
+  - Web app: Local Next.js with full HMR (port 4444)
+  - Queue worker: Remote Cloudflare with dev queues
+- **DOCUMENTED**: Clear separation between dev and prod queues
+- **DOCUMENTED**: Benefits and limitations of hybrid local/remote development
+- **STATUS CHANGE**: ⚠️ Partially Implemented → ✅ Fully Implemented
+
+**Setup Commands**:
+```bash
+# One-time setup (already completed)
+pnpm wrangler queues create datagum-queue-dev
+pnpm wrangler queues create datagum-dlq-dev
+```
+
+**New Development Workflow**:
+```bash
+pnpm dev  # Web (local) + Queue worker (remote dev queue)
+```
+
+### Version 2.0.1 (2025-10-21) ⚠️ DOCUMENTATION UPDATE
+**Critical Local Development Limitation Documented (Corrected)**
+
+- **CORRECTED**: Cloudflare Queues DO support local development, but only when producer and consumer run in the SAME wrangler dev session
+- **ROOT CAUSE**: Our Next.js app runs with `next dev` (not wrangler), queue worker runs with `wrangler dev` separately
+- **ADDED**: "Queue Setup Requirements" section with setup instructions
+- **ADDED**: "⚠️ CRITICAL LIMITATION - Local Development" warning in Executive Summary
+- **ADDED**: Four workarounds for local development:
+  1. Remote development mode (`wrangler dev --remote`) - **Recommended**
+  2. Single wrangler session (both apps) - loses Next.js DX
+  3. Full deployment to Cloudflare
+  4. Mock queue (future implementation)
+- **ADDED**: "Verifying Queue is Working" troubleshooting section
+- **ADDED**: Commands to create `datagum-queue` and `datagum-dlq` in Cloudflare
+- **UPDATED**: Status from "✅ Implemented" to "⚠️ Partially Implemented (Queue Infrastructure Ready, Local Development Limitation)"
+- **ISSUE IDENTIFIED**: Queues must be created in Cloudflare account via `wrangler queues create`
+- **ISSUE IDENTIFIED**: Local queue consumer does not receive messages when web app and queue worker run in separate processes
+
+**Root Cause (Corrected)**: Cloudflare Queues DO have local emulation via Miniflare, but it only works when both producer and consumer run in the SAME `wrangler dev` process. Our architecture uses `next dev` for the web app (better DX) and `wrangler dev` for the queue worker (separate processes), so they cannot share the local queue instance.
+
+**Recommendation**: Use `pnpm --filter queue-worker wrangler dev --remote` for queue worker development while keeping Next.js dev server's excellent DX, or deploy to staging environment for full integration testing.
+
+**Reference**: https://developers.cloudflare.com/queues/configuration/local-development/
 
 ### Version 2.0.0 (2025-10-21) ✅ MAJOR RELEASE
 **Migration to Turborepo Monorepo Architecture**

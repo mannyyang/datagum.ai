@@ -1,5 +1,5 @@
 /**
- * @datagum/shared
+ * @/lib/shared
  *
  * Shared types, utilities, and queue message definitions
  * Used across web app and queue worker

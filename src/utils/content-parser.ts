@@ -8,7 +8,7 @@
  * Uses heuristics to identify main content and filter noise.
  */
 
-import { JSDOM } from 'jsdom'
+import { parseHTML } from 'linkedom'
 import { ParsingError, ContentNotFoundError } from '@/types/scraping-errors'
 
 const MIN_CONTENT_LENGTH = 100 // Minimum characters for valid article
@@ -27,8 +27,8 @@ export interface ParsedArticle {
  */
 export function parseArticleContent(html: string): ParsedArticle {
   try {
-    const dom = new JSDOM(html)
-    const document = dom.window.document
+    // Use linkedom for Cloudflare Workers compatibility
+    const { document } = parseHTML(html)
 
     // Extract title
     const title = extractTitle(document)

@@ -9,7 +9,7 @@
  */
 
 import { eq, gte, and } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
+import { getDb, getDbFromEnv } from '@/lib/db'
 import {
   contentAnalysisSubmissions,
   type Submission,
@@ -81,9 +81,10 @@ export async function updateSubmission(
 export async function updateSubmissionStatus(
   id: string,
   status: SubmissionStatus,
-  error?: string
+  error?: string,
+  env?: CloudflareEnv
 ): Promise<void> {
-  const db = await getDb()
+  const db = env ? getDbFromEnv(env) : await getDb()
 
   const updates: Partial<Submission> = {
     status,
@@ -135,9 +136,10 @@ export async function countRecentSubmissionsByIP(
 export async function updateArticleData(
   id: string,
   title: string,
-  content: string
+  content: string,
+  env?: CloudflareEnv
 ): Promise<void> {
-  const db = await getDb()
+  const db = env ? getDbFromEnv(env) : await getDb()
 
   await db
     .update(contentAnalysisSubmissions)
@@ -154,9 +156,10 @@ export async function updateArticleData(
  */
 export async function updateGeneratedQuestions(
   id: string,
-  questions: string[]
+  questions: string[],
+  env?: CloudflareEnv
 ): Promise<void> {
-  const db = await getDb()
+  const db = env ? getDbFromEnv(env) : await getDb()
 
   await db
     .update(contentAnalysisSubmissions)

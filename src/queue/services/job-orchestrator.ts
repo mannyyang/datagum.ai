@@ -13,6 +13,17 @@
  * 6. Mark as completed or failed
  */
 
+import {
+  updateSubmissionStatus,
+  updateArticleData,
+  updateGeneratedQuestions,
+} from '@/repositories/submission.repository'
+import { saveResult } from '@/repositories/results.repository'
+import { scrapeArticle } from '@/services/scraper.service'
+import { generateQuestions } from '@/services/question-generator.service'
+import { runBatchSearchTests } from '@/services/search-tester.service'
+import type { GeneratedQuestion } from '@/types/question-generation'
+
 export interface JobOrchestratorOptions {
   submissionId: string
   url: string
@@ -76,95 +87,143 @@ export class JobOrchestrator {
    */
   private async updateStatus(status: 'pending' | 'processing' | 'completed' | 'failed'): Promise<void> {
     console.log(`[JobOrchestrator] Updating status to: ${status}`)
-
-    // TODO: Implement database update
-    // const db = await getDb(this.env)
-    // await db.update(submissions).set({ status }).where(eq(submissions.id, this.submissionId))
+    await updateSubmissionStatus(this.submissionId, status, undefined, this.env)
   }
 
   /**
    * Phase 1: Scrape article content
    */
   private async runScrapingPhase(): Promise<ScrapedArticle> {
-    // TODO: Implement article scraping service (Unit 2)
-    // const scraper = new ArticleScraperService()
-    // const article = await scraper.scrapeArticle(this.url)
-    //
-    // // Store in database
-    // await db.update(submissions).set({
-    //   articleTitle: article.title,
-    //   articleContent: article.content,
-    // })
+    try {
+      // Scrape article using real scraper service
+      const parsed = await scrapeArticle(this.url)
 
-    // Placeholder return
-    return {
-      url: this.url,
-      title: 'Placeholder Title',
-      content: 'Placeholder content',
-      headings: [],
-      metaDescription: null,
-      author: null,
-      publishedDate: null,
-      error: null,
+      const article: ScrapedArticle = {
+        url: this.url,
+        title: parsed.title || 'Untitled Article',
+        content: parsed.content || '',
+        headings: [], // TODO: Extract from parsed content if needed
+        metaDescription: null,
+        author: null,
+        publishedDate: null,
+        error: null,
+      }
+
+      // Store article data in database
+      await updateArticleData(
+        this.submissionId,
+        article.title,
+        article.content,
+        this.env
+      )
+
+      return article
+    } catch (error) {
+      // Handle scraping errors gracefully
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`[JobOrchestrator] Scraping failed: ${errorMessage}`)
+
+      // Store error in database
+      await updateSubmissionStatus(this.submissionId, 'failed', errorMessage, this.env)
+
+      // Re-throw to stop the workflow
+      throw error
     }
   }
 
   /**
    * Phase 2: Generate search questions
    */
-  private async runQuestionGenerationPhase(_article: ScrapedArticle): Promise<string[]> {
-    // TODO: Implement question generation service (Unit 3)
-    // const generator = new QuestionGeneratorService(this.env)
-    // const result = await generator.generateQuestions(_article, 10)
-    //
-    // // Store in database
-    // await db.update(submissions).set({
-    //   generatedQuestions: result.questions,
-    // })
+  private async runQuestionGenerationPhase(article: ScrapedArticle): Promise<string[]> {
+    try {
+      // Generate questions using OpenAI
+      const result = await generateQuestions(
+        {
+          articleTitle: article.title,
+          articleContent: article.content,
+          targetUrl: this.url,
+          numberOfQuestions: 10, // Generate 10 questions as per domain model
+        },
+        this.env.OPENAI_API_KEY
+      )
 
-    // Placeholder return
-    return [
-      'Question 1 about the article?',
-      'Question 2 about the article?',
-      'Question 3 about the article?',
-    ]
+      // Extract question strings from GeneratedQuestion objects
+      const questionStrings = result.questions.map((q: GeneratedQuestion) => q.question)
+
+      // Store generated questions in database
+      await updateGeneratedQuestions(this.submissionId, questionStrings, this.env)
+
+      return questionStrings
+    } catch (error) {
+      console.error(`[JobOrchestrator] Question generation failed:`, error)
+
+      // Store fallback questions so the workflow can continue
+      const fallbackQuestions = [`What is "${article.title}" about?`]
+      await updateGeneratedQuestions(this.submissionId, fallbackQuestions, this.env)
+
+      return fallbackQuestions
+    }
   }
 
   /**
    * Phase 3: Test questions through AI search
    */
   private async runSearchTestingPhase(questions: string[]): Promise<void> {
-    // TODO: Implement search testing service (Unit 4)
-    // const tester = new SearchTesterService(this.env)
-    // await tester.testAllQuestions(questions, this.url, this.submissionId)
+    try {
+      console.log(`[JobOrchestrator] Testing ${questions.length} questions with OpenAI web search...`)
 
-    console.log(`[JobOrchestrator] Would test ${questions.length} questions`)
+      // Build search test inputs
+      const inputs = questions.map((q) => ({
+        question: q,
+        targetUrl: this.url,
+      }))
+
+      // Run batch search tests with OpenAI Responses API
+      const batchResult = await runBatchSearchTests(inputs, this.env.OPENAI_API_KEY)
+
+      console.log(
+        `[JobOrchestrator] Search tests completed: ${batchResult.successCount}/${batchResult.totalTests} found`
+      )
+
+      // Save each test result to database
+      for (const result of batchResult.results) {
+        await saveResult(
+          this.submissionId,
+          result.question,
+          result.targetUrlFound,
+          result.foundInSources,
+          result.foundInCitations,
+          result.citations,
+          result.sources,
+          result.responseTimeMs,
+          this.env
+        )
+      }
+
+      console.log(`[JobOrchestrator] Saved ${batchResult.results.length} test results to database`)
+    } catch (error) {
+      console.error(`[JobOrchestrator] Search testing failed:`, error)
+      // Don't throw - allow the job to complete even if search testing partially fails
+      // The results that were saved will still be available
+    }
   }
 
   /**
    * Mark job as completed
    */
   private async markCompleted(): Promise<void> {
+    // updateStatus('completed') automatically sets completedAt timestamp
     await this.updateStatus('completed')
-
-    // TODO: Set completedAt timestamp
-    // await db.update(submissions).set({
-    //   completedAt: new Date(),
-    // })
   }
 
   /**
    * Mark job as failed
    */
   private async markFailed(error: unknown): Promise<void> {
-    await this.updateStatus('failed')
+    const errorMessage = error instanceof Error ? error.message : String(error)
 
-    const _errorMessage = error instanceof Error ? error.message : String(error)
-
-    // TODO: Store error in database
-    // await db.update(submissions).set({
-    //   scrapingError: _errorMessage,
-    // })
+    // Pass error message to updateStatus to store in scrapingError field
+    await updateSubmissionStatus(this.submissionId, 'failed', errorMessage, this.env)
   }
 
   /**

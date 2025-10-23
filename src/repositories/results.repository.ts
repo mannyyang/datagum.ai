@@ -9,7 +9,7 @@
  */
 
 import { eq } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
+import { getDb, getDbFromEnv } from '@/lib/db'
 import {
   contentAnalysisResults,
   type AnalysisResult,
@@ -28,9 +28,10 @@ export async function saveResult(
   foundInCitations: boolean,
   allCitations: CitationInfo[],
   allSources: string[],
-  responseTimeMs?: number
+  responseTimeMs?: number,
+  env?: CloudflareEnv
 ): Promise<AnalysisResult> {
-  const db = await getDb()
+  const db = env ? getDbFromEnv(env) : await getDb()
 
   const [result] = await db
     .insert(contentAnalysisResults)
@@ -53,9 +54,10 @@ export async function saveResult(
  * Save multiple test results at once
  */
 export async function saveResults(
-  results: NewAnalysisResult[]
+  results: NewAnalysisResult[],
+  env?: CloudflareEnv
 ): Promise<AnalysisResult[]> {
-  const db = await getDb()
+  const db = env ? getDbFromEnv(env) : await getDb()
 
   const saved = await db
     .insert(contentAnalysisResults)

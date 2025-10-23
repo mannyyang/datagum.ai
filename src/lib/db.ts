@@ -18,6 +18,22 @@ import * as schema from '@/db/schema'
 export async function getDb() {
   // Get DATABASE_URL from Cloudflare environment
   const { env } = await getCloudflareContext()
+  return getDbFromEnv(env)
+}
+
+/**
+ * Get database connection for Cloudflare Workers (queue workers, etc.)
+ *
+ * Use this variant when you already have access to the env object
+ * (e.g., in queue workers) instead of needing to call getCloudflareContext().
+ *
+ * Usage in queue workers:
+ * ```typescript
+ * const db = getDbFromEnv(env)
+ * const results = await db.select().from(schema.users)
+ * ```
+ */
+export function getDbFromEnv(env: CloudflareEnv) {
   const databaseUrl = env.DATABASE_URL
 
   if (!databaseUrl) {

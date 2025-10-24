@@ -1,10 +1,10 @@
 # Domain Model: Unit 1 - Article Submission & Validation
 
-**Version**: 1.1.1
-**Last Updated**: 2025-10-21
+**Version**: 1.1.2
+**Last Updated**: 2025-10-23
 **Epic**: Epic 1 - Article Submission & Validation
 **User Stories**: US-1.1, US-1.2, US-1.3
-**Status**: ⚠️ In-Progress (Turborepo Monorepo - apps/web)
+**Status**: ✅ Implemented (Production - Cloudflare Workers)
 
 ---
 
@@ -55,12 +55,12 @@ This domain model defines the components, attributes, behaviors, and interaction
 
 ---
 
-### 2. SubmissionAPIHandler ⚠️
+### 2. SubmissionAPIHandler ✅
 **Type**: API Route Handler
-**Location**: `apps/web/src/app/api/submit/route.ts` (to be implemented)
+**Location**: `apps/web/src/app/api/submit/route.ts` (119 lines)
 **Responsibility**: Handles POST /api/submit endpoint for article submissions
 
-**Implementation Status**: ⚠️ Pending implementation
+**Implementation Status**: ✅ Fully Implemented
 
 **Attributes**:
 - `request`: HTTP Request object
@@ -68,7 +68,12 @@ This domain model defines the components, attributes, behaviors, and interaction
 - `requestBody`: Object containing submitted URL
 
 **Behaviors**:
-- `extractUserIP(request)`: string - Gets IP from X-Forwarded-For or connection
+- `extractUserIP(request)`: string - Multi-tier IP extraction with Cloudflare priority
+  - **Priority 1**: `cf-connecting-ip` header (Cloudflare Workers - most reliable)
+  - **Priority 2**: `x-forwarded-for` header (proxy/load balancer support)
+  - **Priority 3**: `x-real-ip` header (alternative proxy header)
+  - **Priority 4**: `request.ip` property (Next.js built-in, if available)
+  - Returns `undefined` if no IP source available
 - `parseRequestBody(request)`: Object - Parses and validates JSON body
 - `validateRequest(body)`: void - Throws error if invalid
 - `handleSubmission(url, userIP)`: Response - Orchestrates submission flow
@@ -518,6 +523,31 @@ await env.QUEUE.send(message)
 ---
 
 ## Changelog
+
+### Version 1.1.2 (2025-10-23) 🐛 BUG FIX
+**IP Address Extraction Enhancement**
+
+**Bug Fix**: Improved client IP address extraction for accurate rate limiting
+
+- **FIXED**: `extractUserIP()` in SubmissionAPIHandler (src/app/api/submit/route.ts:97-124)
+  - **Issue**: All IPs were showing as `::1` (localhost) in production database
+  - **Root Cause**: IP extraction priority was incorrect - checked generic headers before Cloudflare-specific header
+  - **Solution**: Reordered IP extraction logic to prioritize Cloudflare's `cf-connecting-ip` header first
+- **UPDATED**: IP Extraction Priority Order:
+  1. `cf-connecting-ip` header (Cloudflare Workers - most reliable on CF infrastructure)
+  2. `x-forwarded-for` header (proxy/load balancer compatibility)
+  3. `x-real-ip` header (alternative proxy header)
+  4. `request.ip` property (Next.js built-in fallback with type-safe casting)
+- **ADDED**: Type-safe access to optional `request.ip` property using intersection type
+  - Cast: `request as NextRequest & { ip?: string }`
+  - Prevents TypeScript errors while maintaining type safety
+- **IMPACT**: Rate limiting now works correctly with real client IPs
+  - Accurate tracking of submissions per IP
+  - Proper enforcement of 3-per-day rate limit
+  - Better abuse prevention
+- **DEPLOYMENT**: Committed (12a6560), pushed to GitHub, deployed to Cloudflare Workers
+- **FILES CHANGED**:
+  - `src/app/api/submit/route.ts` (lines 97-124): Updated `extractUserIP()` function
 
 ### Version 1.1.1 (2025-10-21) 🎨 STYLING UPDATE
 **UI Theme Migration: Zinc → Slate Colors**

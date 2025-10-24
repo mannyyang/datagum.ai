@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validateURL, sanitizeURL } from '@/services/url-validator.service'
 import { checkRateLimit, RateLimitError } from '@/services/rate-limiter.service'
 import { createSubmission } from '@/repositories/submission.repository'
-import { enqueueArticleAnalysisJob } from '@/lib/queue'
+import { analyzeArticle } from '@/services/analysis.service'
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,25 +42,29 @@ export async function POST(request: NextRequest) {
     // Create submission record
     const submission = await createSubmission(cleanUrl, userIp)
 
-    // Enqueue job for background processing
-    try {
-      await enqueueArticleAnalysisJob(submission.id, submission.url)
-    } catch (queueError) {
-      console.error('Failed to enqueue job:', queueError)
-      // Continue even if queue fails - user will see pending status
-      // Could implement fallback to immediate processing here
-    }
+    // Run analysis synchronously
+    console.log(`[Submit API] Starting analysis for ${submission.id}`)
+    const analysisResult = await analyzeArticle(submission.id, submission.url)
 
-    // Return success response
+    // Return success response with analysis results
     return NextResponse.json(
       {
-        success: true,
+        success: analysisResult.success,
         submissionId: submission.id,
         url: submission.url,
-        status: submission.status,
-        message: 'Article submitted for analysis',
+        status: analysisResult.success ? 'completed' : 'failed',
+        message: analysisResult.success
+          ? 'Article analysis completed'
+          : 'Article analysis failed',
         resultsUrl: `/results/${submission.id}`,
-        estimatedTime: '30-60 seconds',
+        analysis: {
+          articleTitle: analysisResult.articleTitle,
+          questionCount: analysisResult.questionCount,
+          testsCompleted: analysisResult.testsCompleted,
+          testsFound: analysisResult.testsFound,
+          duration: analysisResult.duration,
+        },
+        error: analysisResult.error,
       },
       { status: 200 }
     )

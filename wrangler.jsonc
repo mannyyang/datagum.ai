@@ -36,34 +36,6 @@
      */
     "observability": {
         "enabled": true
-    },
-
-    /**
-     * Queue Bindings
-     * Both producer (send messages) and consumer (process messages)
-     * https://developers.cloudflare.com/queues/
-     *
-     * Local dev: Uses simulated Miniflare queue
-     * Production: Uses real Cloudflare queue (create with: pnpm wrangler queues create datagum-queue)
-     *
-     * After adding queue bindings, run: pnpm cf-typegen
-     */
-    "queues": {
-        "producers": [
-            {
-                "binding": "ARTICLE_ANALYSIS_QUEUE",
-                "queue": "datagum-queue"
-            }
-        ],
-        "consumers": [
-            {
-                "queue": "datagum-queue",
-                "max_batch_size": 10,
-                "max_batch_timeout": 30,
-                "max_retries": 3,
-                "dead_letter_queue": "datagum-dlq"
-            }
-        ]
     }
 
     /**

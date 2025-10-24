@@ -1,10 +1,10 @@
 # Domain Model: Unit 4 - AI Search Visibility Testing
 
-**Version**: 1.1.0
-**Last Updated**: 2025-10-21
+**Version**: 1.1.1
+**Last Updated**: 2025-10-23
 **Epic**: Epic 4 - AI Search Visibility Testing
 **User Stories**: US-4.1, US-4.2, US-4.3, US-4.4, US-4.5
-**Status**: Implementation Required - API Integration Update
+**Status**: ✅ Fully Implemented with Enhanced Logging
 
 ---
 
@@ -721,6 +721,40 @@ pnpm add openai
 ---
 
 ## Changelog
+
+### Version 1.1.1 (2025-10-23) 🔍 LOGGING ENHANCEMENT
+**Enhanced Observability for Question Testing**
+
+**Feature**: Added comprehensive per-question logging in batch search testing
+
+- **ADDED**: Detailed logging in `runBatchSearchTests()` function (src/services/search-tester.service.ts:115-155)
+  - **Batch Start Log**: Displays total number of questions to be tested
+    - Format: `[SearchTester] Starting batch of ${count} question tests`
+  - **Per-Question Logs**: Real-time progress tracking for each question
+    - Start log: `[SearchTester] Testing question ${n}/${total}: "${question}"`
+    - Success log: `[SearchTester] ✅ Question ${n} result:` with detailed metrics
+    - Failure log: `[SearchTester] ❌ Failed question ${n}/${total}: "${question}"`
+- **ADDED**: Detailed result metrics logged for each successful question:
+  - `targetFound`: Boolean indicating if target URL was found
+  - `foundInCitations`: Boolean for citation detection
+  - `foundInSources`: Boolean for source detection
+  - `citationPosition`: Numeric position in citations (if found)
+  - `responseTimeMs`: API response time in milliseconds
+  - `totalCitations`: Count of all citations returned
+  - `totalSources`: Count of all sources returned
+- **ADDED**: Batch summary log at completion (src/services/search-tester.service.ts:183-192)
+  - Format: `[SearchTester] 📊 Batch complete - Summary:`
+  - Includes: totalTests, successCount, citationCount, sourceCount, averagePosition, averageResponseTimeMs
+- **BENEFIT**: Improved debugging and real-time visibility into search testing progress
+  - Operators can monitor which questions are being tested
+  - Immediate visibility into success/failure rates
+  - Performance metrics available per-question
+  - Enhanced troubleshooting capabilities for failed searches
+- **IMPLEMENTATION**:
+  - File: `src/services/search-tester.service.ts`
+  - Lines modified: 115-155, 183-192
+  - Total new log statements: 3 (batch start, per-question, summary)
+- **DEPLOYMENT STATUS**: ✅ Ready for production deployment
 
 ### Version 1.1.0 (2025-10-21)
 **Breaking Change**: Update to use OpenAI native web_search tool

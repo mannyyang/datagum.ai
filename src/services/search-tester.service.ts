@@ -112,17 +112,43 @@ export async function runBatchSearchTests(
 ): Promise<BatchSearchTestResult> {
   const results: SearchTestResult[] = []
 
-  for (const input of inputs) {
+  console.log(`[SearchTester] Starting batch of ${inputs.length} question tests`)
+
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i]
+    const questionNumber = i + 1
+
     try {
+      console.log(
+        `[SearchTester] Testing question ${questionNumber}/${inputs.length}: "${input.question}"`
+      )
+
       const result = await runSearchTest(input, apiKey)
       results.push(result)
+
+      // Log detailed result for this question
+      console.log(
+        `[SearchTester] ✅ Question ${questionNumber} result:`,
+        {
+          targetFound: result.targetUrlFound,
+          foundInCitations: result.foundInCitations,
+          foundInSources: result.foundInSources,
+          citationPosition: result.citationPosition,
+          responseTimeMs: result.responseTimeMs,
+          totalCitations: result.citations.length,
+          totalSources: result.sources.length,
+        }
+      )
 
       // Add delay between requests to avoid rate limiting
       if (results.length < inputs.length) {
         await sleep(1000) // 1 second delay
       }
-    } catch {
-      console.error(`Failed to run search test for question: ${input.question}`)
+    } catch (error) {
+      console.error(
+        `[SearchTester] ❌ Failed question ${questionNumber}/${inputs.length}: "${input.question}"`,
+        error
+      )
       // Continue with next test even if one fails
       // Could also choose to fail the entire batch
     }
@@ -152,6 +178,18 @@ export async function runBatchSearchTests(
     responseTimes.length > 0
       ? responseTimes.reduce((sum, time) => sum + time, 0) / responseTimes.length
       : undefined
+
+  // Log final summary
+  console.log(`[SearchTester] 📊 Batch complete - Summary:`, {
+    totalTests,
+    successCount,
+    citationCount,
+    sourceCount,
+    averagePosition,
+    averageResponseTimeMs: averageResponseTimeMs
+      ? `${Math.round(averageResponseTimeMs)}ms`
+      : 'N/A',
+  })
 
   return {
     results,

@@ -114,9 +114,10 @@ function extractUserIP(request: NextRequest): string | undefined {
     return realIp
   }
 
-  // Try Next.js built-in IP property
-  if (request.ip) {
-    return request.ip
+  // Try to access IP from request object (if available)
+  const requestWithIp = request as NextRequest & { ip?: string }
+  if (requestWithIp.ip) {
+    return requestWithIp.ip
   }
 
   return undefined

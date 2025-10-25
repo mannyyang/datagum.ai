@@ -51,9 +51,19 @@
       "Bash(curl -s -X POST http://localhost:8787/api/submit )",
       "Bash(pnpm tsx /tmp/check_ip.ts)",
       "Bash(curl -s -X POST http://localhost:8787/api/submit -H \"Content-Type: application/json\" -H \"X-Forwarded-For: 198.51.100.42, 203.0.113.1\" -d '{\"\"\"\"url\"\"\"\":\"\"\"\"https://example.com/test-x-forwarded-for\"\"\"\"}')",
-      "Bash(curl -s -X POST http://localhost:8787/api/submit -H \"Content-Type: application/json\" -H \"X-Forwarded-For: 198.51.100.42\" -d '{\"\"url\"\":\"\"https://example.com/test-x-forwarded-for\"\"}')"
+      "Bash(curl -s -X POST http://localhost:8787/api/submit -H \"Content-Type: application/json\" -H \"X-Forwarded-For: 198.51.100.42\" -d '{\"\"url\"\":\"\"https://example.com/test-x-forwarded-for\"\"}')",
+      "Bash(cat .gitignore)",
+      "Bash(curl -s http://localhost:4444/api/results/44b65ca3-3b3a-411e-a0bd-5b68796f94eb)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(find /Users/myang/git/datagum.ai/src -type f ( -name \"*.service.ts\" -o -name \"*.repository.ts\" -o -name \"*utils*\" ) ! -path \"*/node_modules/*\")",
+      "Bash(find /Users/myang/git/datagum.ai/src/components/ui -name \"*.tsx\" -exec grep -l \"@radix-ui\" {} ;)",
+      "Bash(find /Users/myang/git/datagum.ai/src -type f ( -name \"*.ts\" -o -name \"*.tsx\" ) -exec grep -l \"linkedom\\|turndown\" {} ;)",
+      "Bash(find /Users/myang/git/datagum.ai/src -name \"*.ts\" -exec grep -l \"generateFAQs\\|FAQGenerationInput\\|FAQGenerationResult\" {} ;)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "/Users/myang/git/CreativeAdsDirectory"
+    ]
   }
 }

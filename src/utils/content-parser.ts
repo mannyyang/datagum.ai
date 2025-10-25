@@ -9,9 +9,18 @@
  */
 
 import { parseHTML } from 'linkedom'
+import TurndownService from 'turndown'
 import { ParsingError, ContentNotFoundError } from '@/types/scraping-errors'
 
 const MIN_CONTENT_LENGTH = 100 // Minimum characters for valid article
+
+// Initialize Turndown service for HTML to Markdown conversion
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced',
+  bulletListMarker: '-',
+  emDelimiter: '*',
+})
 
 /**
  * Parsed article data
@@ -91,7 +100,7 @@ function extractTitle(document: Document): string {
 }
 
 /**
- * Extract main article content from document
+ * Extract main article content from document and convert to Markdown
  */
 function extractMainContent(document: Document): string {
   // Remove unwanted elements
@@ -102,7 +111,8 @@ function extractMainContent(document: Document): string {
     document.querySelector('article') || document.querySelector('main')
 
   if (article) {
-    return cleanText(article.textContent || '')
+    const html = article.innerHTML
+    return convertToMarkdown(html)
   }
 
   // Try common content class names
@@ -119,21 +129,22 @@ function extractMainContent(document: Document): string {
   for (const selector of contentSelectors) {
     const element = document.querySelector(selector)
     if (element) {
-      const text = cleanText(element.textContent || '')
-      if (text.length >= MIN_CONTENT_LENGTH) {
-        return text
+      const html = element.innerHTML
+      const markdown = convertToMarkdown(html)
+      if (markdown.length >= MIN_CONTENT_LENGTH) {
+        return markdown
       }
     }
   }
 
-  // Fallback: get all paragraphs
-  const paragraphs = Array.from(document.querySelectorAll('p'))
-  const combinedText = paragraphs
-    .map((p) => cleanText(p.textContent || ''))
-    .filter((text) => text.length > 0)
-    .join('\n\n')
+  // Fallback: get body content
+  const body = document.querySelector('body')
+  if (body) {
+    const html = body.innerHTML
+    return convertToMarkdown(html)
+  }
 
-  return combinedText
+  return ''
 }
 
 /**
@@ -161,7 +172,37 @@ function removeUnwantedElements(document: Document): void {
 }
 
 /**
- * Clean and normalize text content
+ * Convert HTML to Markdown
+ */
+function convertToMarkdown(html: string): string {
+  try {
+    const markdown = turndownService.turndown(html)
+    return cleanMarkdown(markdown)
+  } catch (error) {
+    console.error('Failed to convert HTML to Markdown:', error)
+    // Fallback to plain text extraction
+    const { document: tempDoc } = parseHTML(html)
+    return cleanText(tempDoc.body?.textContent || '')
+  }
+}
+
+/**
+ * Clean and normalize markdown content
+ */
+function cleanMarkdown(markdown: string): string {
+  return (
+    markdown
+      // Remove excessive blank lines (more than 2)
+      .replace(/\n{4,}/g, '\n\n\n')
+      // Clean up list formatting
+      .replace(/\n\n-/g, '\n-')
+      // Remove leading/trailing whitespace
+      .trim()
+  )
+}
+
+/**
+ * Clean and normalize text content (fallback)
  */
 function cleanText(text: string): string {
   return (

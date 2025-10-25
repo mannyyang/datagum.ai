@@ -39,6 +39,17 @@ export async function GET(
     const mentionedCount = results.filter((r) => r.foundInSources).length
     const notFoundCount = results.filter((r) => !r.targetUrlFound).length
 
+    // Calculate total sources and citations across all results
+    const totalSources = results.reduce((sum, r) => {
+      const sources = r.allSources as any[]
+      return sum + (sources?.length || 0)
+    }, 0)
+
+    const totalCitations = results.reduce((sum, r) => {
+      const citations = r.allCitations as CitationInfo[]
+      return sum + (citations?.length || 0)
+    }, 0)
+
     const citationPositions = results
       .filter((r) => {
         const citations = r.allCitations as CitationInfo[]
@@ -58,6 +69,17 @@ export async function GET(
           citationPositions.length
         : undefined
 
+    // Calculate 3-tier metrics from testMetrics if available
+    const testMetrics = submission.testMetrics as any
+    const tier2SuccessRate =
+      testMetrics && testMetrics.totalFaqs > 0
+        ? (testMetrics.inSourcesCount / testMetrics.totalFaqs) * 100
+        : undefined
+    const tier3SuccessRate =
+      testMetrics && testMetrics.totalFaqs > 0
+        ? (testMetrics.inCitationsCount / testMetrics.totalFaqs) * 100
+        : undefined
+
     // Return combined data
     return NextResponse.json(
       {
@@ -69,10 +91,25 @@ export async function GET(
           scrapingError: submission.scrapingError,
           createdAt: submission.createdAt,
           completedAt: submission.completedAt,
+          generatedFaqs: submission.generatedFaqs,
+          testMetrics: testMetrics
+            ? {
+                ...testMetrics,
+                tier2SuccessRate:
+                  tier2SuccessRate !== undefined
+                    ? Math.round(tier2SuccessRate * 10) / 10
+                    : undefined,
+                tier3SuccessRate:
+                  tier3SuccessRate !== undefined
+                    ? Math.round(tier3SuccessRate * 10) / 10
+                    : undefined,
+              }
+            : null,
         },
         results: results.map((r) => ({
           id: r.id,
           question: r.question,
+          llmResponse: r.llmResponse,
           targetUrlFound: r.targetUrlFound,
           foundInSources: r.foundInSources,
           foundInCitations: r.foundInCitations,
@@ -87,6 +124,8 @@ export async function GET(
           citationRate:
             totalTests > 0 ? (citedCount / totalTests) * 100 : 0,
           averagePosition,
+          totalSources,
+          totalCitations,
         },
       },
       { status: 200 }

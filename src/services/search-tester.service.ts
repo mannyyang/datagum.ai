@@ -54,10 +54,14 @@ export async function runSearchTest(
             // }
           },
         ],
-        tool_choice: 'auto', // Let model decide when to use search
+        tool_choice: 'required', // Force web search for all tests
         include: ['web_search_call.action.sources'], // Include source URLs
         input: input.question,
       })) as unknown as ResponsesAPIOutput
+
+      // Log raw response for debugging
+      console.log(`[SearchTester] FAQ Test - Raw response for question: "${input.question}"`)
+      console.log(JSON.stringify(response, null, 2))
 
       if (!response.output) {
         throw new Error('Empty response from OpenAI Responses API')
@@ -77,6 +81,7 @@ export async function runSearchTest(
 
       return {
         question: input.question,
+        llmResponse: response.output_text || undefined,
         targetUrlFound,
         foundInSources,
         foundInCitations,
@@ -199,6 +204,81 @@ export async function runBatchSearchTests(
     sourceCount,
     averagePosition,
     averageResponseTimeMs,
+  }
+}
+
+/**
+ * Run control test to verify article accessibility (token-efficient)
+ *
+ * Tests if OpenAI can directly access the target URL using web_search tool.
+ * This is Tier 1 testing per CreativeAdsDirectory methodology.
+ *
+ * Uses a minimal query to just check URL accessibility without generating
+ * a full response, saving tokens.
+ *
+ * Reference: /Users/myang/git/CreativeAdsDirectory/server/services/job-queue/strategies/control-test.strategy.ts
+ */
+export async function runControlTest(
+  targetUrl: string,
+  apiKey?: string
+): Promise<boolean> {
+  console.log(`[SearchTester] Running control test for ${targetUrl}`)
+
+  try {
+    const openai = getOpenAIClient(apiKey)
+
+    // Minimal query to check accessibility - just asks to visit URL
+    const controlTestQuestion = `What's in this article: ${targetUrl}`
+
+    console.log(`[SearchTester] Control test query: ${controlTestQuestion}`)
+
+    // Use minimal reasoning effort and require web_search tool
+    const response = (await openai.responses.create({
+      model: MODEL,
+      reasoning: { effort: 'low' }, // Minimal reasoning for speed
+      tools: [{ type: 'web_search' }],
+      tool_choice: 'required', // Force web search (don't let model skip it)
+      include: ['web_search_call.action.sources'], // Only need sources
+      input: controlTestQuestion,
+    })) as unknown as ResponsesAPIOutput
+
+    // Log raw response for debugging
+    console.log('[SearchTester] Control test - Raw response:')
+    console.log(JSON.stringify(response, null, 2))
+
+    if (!response.output) {
+      console.log('[SearchTester] Control test: No response output')
+      return false
+    }
+
+    // Extract sources and citations for debugging
+    const sources = extractAllSources(response)
+    const citations = extractCitations(response)
+
+    // Debug logging
+    console.log(`[SearchTester] Control test - Sources found:`, sources.length)
+    sources.forEach((source, i) => {
+      console.log(`  Source ${i + 1}:`, source)
+    })
+
+    console.log(`[SearchTester] Control test - Citations found:`, citations.length)
+    citations.forEach((citation, i) => {
+      console.log(`  Citation ${i + 1}:`, citation)
+    })
+
+    // Check accessibility in both sources and citations
+    const foundInSources = isTargetInSources(targetUrl, sources)
+    const { found: foundInCitations } = isTargetInCitations(targetUrl, citations)
+    const isAccessible = foundInSources || foundInCitations
+
+    console.log(
+      `[SearchTester] Control test result: ${isAccessible ? '✅ PASS' : '❌ FAIL'} (foundInSources: ${foundInSources}, foundInCitations: ${foundInCitations})`
+    )
+
+    return isAccessible
+  } catch (error) {
+    console.error(`[SearchTester] Control test failed:`, error)
+    return false
   }
 }
 

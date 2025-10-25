@@ -37,12 +37,15 @@ interface AnalysisResults {
     notFoundCount: number
     citationRate: number
     averagePosition?: number
+    totalSources?: number
+    totalCitations?: number
   }
 }
 
 interface TestResult {
   id: number
   question: string
+  llmResponse?: string
   targetUrlFound: boolean
   foundInSources: boolean
   foundInCitations: boolean
@@ -185,13 +188,13 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
           )}
           {isProcessing && (
             <p className="text-sm text-muted-foreground mt-2">
-              Analyzing your article... ({results.length} of 10 questions tested)
+              Analyzing your article... ({results.length} of 5 questions tested)
             </p>
           )}
         </div>
 
         {/* Statistics Cards - with skeleton support */}
-        <div className="grid md:grid-cols-4 gap-4 mb-8">
+        <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {/* Citation Rate Card */}
           <div className="bg-card border rounded-lg p-6">
             <p className="text-sm text-muted-foreground mb-1">Citation Rate</p>
@@ -265,6 +268,42 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
               </>
             )}
           </div>
+
+          {/* Total Sources Card */}
+          <div className="bg-card border rounded-lg p-6">
+            <p className="text-sm text-muted-foreground mb-1">Total Sources</p>
+            {statistics ? (
+              <>
+                <p className="text-3xl font-bold text-blue-600">
+                  {statistics.totalSources || 0}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Retrieved</p>
+              </>
+            ) : (
+              <>
+                <Skeleton className="h-10 w-12 mb-1" />
+                <Skeleton className="h-4 w-20" />
+              </>
+            )}
+          </div>
+
+          {/* Total Citations Card */}
+          <div className="bg-card border rounded-lg p-6">
+            <p className="text-sm text-muted-foreground mb-1">Total Citations</p>
+            {statistics ? (
+              <>
+                <p className="text-3xl font-bold text-purple-600">
+                  {statistics.totalCitations || 0}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">In answers</p>
+              </>
+            ) : (
+              <>
+                <Skeleton className="h-10 w-12 mb-1" />
+                <Skeleton className="h-4 w-20" />
+              </>
+            )}
+          </div>
         </div>
 
         {/* Average Position (if available) */}
@@ -285,7 +324,7 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
             <h2 className="text-2xl font-bold">Test Results</h2>
             {isProcessing && (
               <span className="text-sm text-muted-foreground">
-                {results.length} of 10 completed
+                {results.length} of 5 completed
               </span>
             )}
           </div>
@@ -306,6 +345,15 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
                 )}
                 <div className="flex-1">
                   <h3 className="font-semibold mb-2">{result.question}</h3>
+
+                  {result.llmResponse && (
+                    <div className="mb-3 p-3 bg-muted/50 rounded border border-border">
+                      <p className="text-xs text-muted-foreground mb-1 font-medium">
+                        LLM Response:
+                      </p>
+                      <p className="text-sm">{result.llmResponse}</p>
+                    </div>
+                  )}
 
                   {result.foundInCitations && (
                     <p className="text-sm text-green-600 mb-2">
@@ -332,8 +380,45 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
                       </summary>
                       <ul className="mt-2 space-y-1 text-sm">
                         {result.citations.map((citation, idx) => (
-                          <li key={idx} className="truncate">
-                            {citation.position}. {citation.url}
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-muted-foreground flex-shrink-0">
+                              {citation.position}.
+                            </span>
+                            <a
+                              href={citation.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 break-all"
+                            >
+                              {citation.title || citation.url}
+                              <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+
+                  {result.sources.length > 0 && (
+                    <details className="mt-3">
+                      <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+                        View {result.sources.length} source(s)
+                      </summary>
+                      <ul className="mt-2 space-y-1 text-sm">
+                        {result.sources.map((source, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-muted-foreground flex-shrink-0">
+                              {idx + 1}.
+                            </span>
+                            <a
+                              href={source}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 break-all"
+                            >
+                              {source}
+                              <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                            </a>
                           </li>
                         ))}
                       </ul>
@@ -345,7 +430,7 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
           ))}
 
           {/* Skeleton placeholders for pending results */}
-          {Array.from({ length: Math.max(0, 10 - results.length) }).map((_, i) => (
+          {Array.from({ length: Math.max(0, 5 - results.length) }).map((_, i) => (
             <div
               key={`skeleton-${i}`}
               className="bg-card border rounded-lg p-6"

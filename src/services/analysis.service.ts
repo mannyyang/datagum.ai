@@ -1,32 +1,45 @@
 /**
  * Article Analysis Service
  *
- * Orchestrates the complete article analysis workflow synchronously:
+ * Orchestrates the complete article analysis workflow with 3-tier testing:
  * 1. Scrape article content
- * 2. Generate search questions with AI
- * 3. Test questions through OpenAI web search
- * 4. Save results to database
+ * 2. Generate FAQ pairs with AI (following CreativeAdsDirectory methodology)
+ * 3. Run control test (Tier 1: Accessibility)
+ * 4. Test FAQs through OpenAI web search (Tier 2 & 3)
+ * 5. Calculate and save test metrics
+ *
+ * Reference: /Users/myang/git/CreativeAdsDirectory/docs/faq-llm-indexing-summary.md
  */
 
 import { getCloudflareContext } from '@opennextjs/cloudflare'
 import {
   updateSubmissionStatus,
   updateArticleData,
-  updateGeneratedQuestions,
+  updateGeneratedFAQs,
+  updateTestMetrics,
 } from '@/repositories/submission.repository'
 import { saveResult } from '@/repositories/results.repository'
 import { scrapeArticle } from '@/services/scraper.service'
-import { generateQuestions } from '@/services/question-generator.service'
-import { runBatchSearchTests } from '@/services/search-tester.service'
-import type { GeneratedQuestion } from '@/types/question-generation'
+import { generateFAQs } from '@/services/faq-generator.service'
+import {
+  runBatchSearchTests,
+  runControlTest,
+} from '@/services/search-tester.service'
+import {
+  calculateTestMetrics,
+  formatMetricsForStorage,
+} from '@/utils/test-results-formatter'
+import type { FAQ } from '@/types/faq-generation'
 
 export interface AnalysisResult {
   success: boolean
   submissionId: string
   articleTitle?: string
-  questionCount?: number
+  faqCount?: number
   testsCompleted?: number
-  testsFound?: number
+  tier1Passed?: boolean // Control test (accessibility)
+  tier2Count?: number // FAQs found in sources
+  tier3Count?: number // FAQs cited in answers
   duration?: number
   error?: string
 }
@@ -71,27 +84,57 @@ export async function analyzeArticle(
     )
     console.log(`[Analysis] Article scraped: ${scrapedArticle.title}`)
 
-    // Phase 3: Generate questions
-    console.log(`[Analysis] Phase 2: Generating questions...`)
-    const questions = await generateQuestionsPhase(
+    // Phase 3: Generate FAQ pairs
+    console.log(`[Analysis] Phase 2: Generating FAQs...`)
+    const faqs = await generateFAQsPhase(
       submissionId,
       scrapedArticle,
       url,
       env
     )
-    console.log(`[Analysis] Generated ${questions.length} questions`)
+    console.log(`[Analysis] Generated ${faqs.length} FAQ pairs`)
 
-    // Phase 4: Test search visibility
-    console.log(`[Analysis] Phase 3: Testing search visibility...`)
-    const testResults = await testSearchVisibility(
-      submissionId,
-      questions,
+    // Phase 4: Run control test (Tier 1)
+    console.log(`[Analysis] Phase 3: Running control test (Tier 1)...`)
+    const isAccessible = await runControlTest(
       url,
-      env
+      env.OPENAI_API_KEY
     )
-    console.log(
-      `[Analysis] Search tests completed: ${testResults.successCount}/${testResults.totalTests} found`
-    )
+    console.log(`[Analysis] Control test: ${isAccessible ? 'PASS ✅' : 'FAIL ❌'}`)
+
+    // Phase 5: Test FAQ search visibility (Tier 2 & 3)
+    // Skip if control test fails
+    let tier2Count = 0
+    let tier3Count = 0
+
+    if (isAccessible) {
+      console.log(`[Analysis] Phase 4: Testing FAQ search visibility...`)
+      const testMetrics = await testFAQVisibility(
+        submissionId,
+        faqs,
+        url,
+        isAccessible,
+        env
+      )
+      tier2Count = testMetrics.inSourcesCount
+      tier3Count = testMetrics.inCitationsCount
+      console.log(
+        `[Analysis] FAQ tests completed: Tier 2: ${tier2Count}/${faqs.length} in sources, Tier 3: ${tier3Count}/${faqs.length} cited`
+      )
+    } else {
+      console.log(`[Analysis] Skipping FAQ tests - control test failed`)
+      // Save empty test metrics
+      await updateTestMetrics(
+        submissionId,
+        {
+          isAccessible: false,
+          inSourcesCount: 0,
+          inCitationsCount: 0,
+          totalFaqs: faqs.length,
+        },
+        env
+      )
+    }
 
     // Mark as completed
     await updateSubmissionStatus(submissionId, 'completed', undefined, env)
@@ -103,9 +146,11 @@ export async function analyzeArticle(
       success: true,
       submissionId,
       articleTitle: scrapedArticle.title,
-      questionCount: questions.length,
-      testsCompleted: testResults.totalTests,
-      testsFound: testResults.successCount,
+      faqCount: faqs.length,
+      testsCompleted: faqs.length,
+      tier1Passed: isAccessible,
+      tier2Count,
+      tier3Count,
       duration,
     }
   } catch (error) {
@@ -124,58 +169,69 @@ export async function analyzeArticle(
 }
 
 /**
- * Generate search questions phase
+ * Generate FAQ pairs phase
  */
-async function generateQuestionsPhase(
+async function generateFAQsPhase(
   submissionId: string,
   article: ScrapedArticle,
   targetUrl: string,
   env: CloudflareEnv
-): Promise<string[]> {
+): Promise<FAQ[]> {
   try {
-    const result = await generateQuestions(
+    const result = await generateFAQs(
       {
         articleTitle: article.title,
         articleContent: article.content,
         targetUrl,
-        numberOfQuestions: 5,
+        numberOfFAQs: 5,
       },
       env.OPENAI_API_KEY
     )
 
-    const questionStrings = result.questions.map(
-      (q: GeneratedQuestion) => q.question
-    )
-    await updateGeneratedQuestions(submissionId, questionStrings, env)
+    // Store FAQs in database
+    await updateGeneratedFAQs(submissionId, result.faqs, env)
 
-    return questionStrings
+    return result.faqs
   } catch (error) {
-    console.error(`[Analysis] Question generation failed:`, error)
+    console.error(`[Analysis] FAQ generation failed:`, error)
 
-    // Fallback to simple question
-    const fallbackQuestions = [`What is "${article.title}" about?`]
-    await updateGeneratedQuestions(submissionId, fallbackQuestions, env)
+    // Fallback to simple FAQ
+    const fallbackFAQs: FAQ[] = [
+      {
+        question: `What is "${article.title}" about?`,
+        answer: `This article discusses ${article.title}. For more details, please read the full article.`,
+        category: 'what-is',
+        numbers: [],
+      },
+    ]
+    await updateGeneratedFAQs(submissionId, fallbackFAQs, env)
 
-    return fallbackQuestions
+    return fallbackFAQs
   }
 }
 
 /**
- * Test search visibility phase
+ * Test FAQ search visibility phase (Tier 2 & 3)
  */
-async function testSearchVisibility(
+async function testFAQVisibility(
   submissionId: string,
-  questions: string[],
+  faqs: FAQ[],
   targetUrl: string,
+  isAccessible: boolean,
   env: CloudflareEnv
-): Promise<{ totalTests: number; successCount: number }> {
+): Promise<{
+  isAccessible: boolean
+  inSourcesCount: number
+  inCitationsCount: number
+  totalFaqs: number
+}> {
   try {
     console.log(
-      `[Analysis] Testing ${questions.length} questions with OpenAI web search...`
+      `[Analysis] Testing ${faqs.length} FAQ questions with OpenAI web search...`
     )
 
-    const inputs = questions.map((q) => ({
-      question: q,
+    const inputs = faqs.map((faq) => ({
+      question: faq.question,
       targetUrl,
     }))
 
@@ -192,6 +248,7 @@ async function testSearchVisibility(
         result.citations,
         result.sources,
         result.responseTimeMs,
+        result.llmResponse,
         env
       )
     }
@@ -200,16 +257,26 @@ async function testSearchVisibility(
       `[Analysis] Saved ${batchResult.results.length} test results to database`
     )
 
-    return {
-      totalTests: batchResult.totalTests,
-      successCount: batchResult.successCount,
-    }
-  } catch (error) {
-    console.error(`[Analysis] Search testing failed:`, error)
+    // Calculate 3-tier metrics
+    const metrics = calculateTestMetrics(batchResult.results, isAccessible)
+    const metricsForStorage = formatMetricsForStorage(metrics)
 
-    return {
-      totalTests: 0,
-      successCount: 0,
+    // Store test metrics
+    await updateTestMetrics(submissionId, metricsForStorage, env)
+
+    return metricsForStorage
+  } catch (error) {
+    console.error(`[Analysis] FAQ search testing failed:`, error)
+
+    const emptyMetrics = {
+      isAccessible,
+      inSourcesCount: 0,
+      inCitationsCount: 0,
+      totalFaqs: faqs.length,
     }
+
+    await updateTestMetrics(submissionId, emptyMetrics, env)
+
+    return emptyMetrics
   }
 }

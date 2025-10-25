@@ -152,7 +152,7 @@ export async function updateArticleData(
 }
 
 /**
- * Store generated questions
+ * Store generated questions (legacy - use updateGeneratedFAQs instead)
  */
 export async function updateGeneratedQuestions(
   id: string,
@@ -165,6 +165,54 @@ export async function updateGeneratedQuestions(
     .update(contentAnalysisSubmissions)
     .set({
       generatedQuestions: questions,
+      updatedAt: new Date(),
+    })
+    .where(eq(contentAnalysisSubmissions.id, id))
+}
+
+/**
+ * Store generated FAQ pairs
+ */
+export async function updateGeneratedFAQs(
+  id: string,
+  faqs: Array<{
+    question: string
+    answer: string
+    category: string
+    numbers: string[]
+  }>,
+  env?: CloudflareEnv
+): Promise<void> {
+  const db = env ? getDbFromEnv(env) : await getDb()
+
+  await db
+    .update(contentAnalysisSubmissions)
+    .set({
+      generatedFaqs: faqs,
+      updatedAt: new Date(),
+    })
+    .where(eq(contentAnalysisSubmissions.id, id))
+}
+
+/**
+ * Store test metrics (3-tier results)
+ */
+export async function updateTestMetrics(
+  id: string,
+  metrics: {
+    isAccessible: boolean
+    inSourcesCount: number
+    inCitationsCount: number
+    totalFaqs: number
+  },
+  env?: CloudflareEnv
+): Promise<void> {
+  const db = env ? getDbFromEnv(env) : await getDb()
+
+  await db
+    .update(contentAnalysisSubmissions)
+    .set({
+      testMetrics: metrics,
       updatedAt: new Date(),
     })
     .where(eq(contentAnalysisSubmissions.id, id))

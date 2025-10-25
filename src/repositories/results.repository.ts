@@ -29,6 +29,7 @@ export async function saveResult(
   allCitations: CitationInfo[],
   allSources: string[],
   responseTimeMs?: number,
+  llmResponse?: string,
   env?: CloudflareEnv
 ): Promise<AnalysisResult> {
   const db = env ? getDbFromEnv(env) : await getDb()
@@ -38,6 +39,7 @@ export async function saveResult(
     .values({
       submissionId,
       question,
+      llmResponse,
       targetUrlFound,
       foundInSources,
       foundInCitations,

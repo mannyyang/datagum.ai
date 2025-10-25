@@ -1,10 +1,10 @@
 # Domain Model: Unit 5 - Results Display & Analysis
 
-**Version**: 1.2.1
-**Last Updated**: 2025-10-21
+**Version**: 1.3.0
+**Last Updated**: 2025-10-25
 **Epic**: Epic 5 - Results Display & Analysis
 **User Stories**: US-5.1, US-5.2, US-5.3, US-5.4, US-5.5
-**Status**: ⚠️ In-Progress (Turborepo Monorepo - apps/web)
+**Status**: ✅ Implemented (Turborepo Monorepo - apps/web)
 
 ---
 
@@ -631,6 +631,52 @@ useEffect(() => {
 ---
 
 ## Changelog
+
+### Version 1.3.0 (2025-10-25) 🎨 UI REFINEMENT
+**Progressive Loading UI Improvements**
+
+**UX Enhancement**: Refined progressive loading interface based on user feedback for better information hierarchy and visual clarity
+
+- **UPDATED**: Control Test Card positioning and sizing
+  - Moved control test display to appear UNDER test results section (not above)
+  - Reduced card size to be more compact and less visually prominent
+  - Control test is Tier 1 - foundational but not the primary insight
+  - Better visual hierarchy: FAQ test results are the main focus
+- **UPDATED**: Metrics Cards color scheme
+  - Removed all colored text from metrics cards (was using green/yellow/red)
+  - Changed to uniform black text color for all metrics
+  - Cleaner, more professional appearance
+  - Reduced visual noise and cognitive load
+- **ENHANCED**: FAQ Questions display during loading
+  - Display generated FAQ questions immediately after generation phase completes
+  - Show FAQ questions in loading screen with skeleton loaders while searches happen
+  - Users can read the questions being tested while analysis is in progress
+  - Better engagement during wait time - users understand what's being tested
+- **REORGANIZED**: LLM Response placement
+  - Moved LLM response text to be UNDER citations and sources (collapsed by default)
+  - LLM response is supporting detail, not primary insight
+  - Citations and sources are the key actionable data
+  - Cleaner initial view with ability to expand for full context
+- **EMPHASIS**: Citation vs Sources distinction
+  - Primary insight: Whether each question exists in citations vs sources
+  - Updated UI to highlight this distinction more clearly
+  - Citations = cited in answer (Tier 3, highest value)
+  - Sources = found in source list (Tier 2, moderate value)
+  - Visual hierarchy emphasizes citation presence as success metric
+- **ENHANCED**: Progressive loading flow
+  - Phase 1: Scraping → Show URL and progress indicator
+  - Phase 2: Generating FAQs → Show "Generating questions..." then display generated questions
+  - Phase 3: Running Control → Show compact control test with pass/fail
+  - Phase 4: Testing FAQs → Show FAQ questions with skeleton loaders for each test
+  - Phase 5: Completed → All skeletons replaced with citation/source results
+- **IMPROVED**: Information architecture
+  - Top: Article header and metadata
+  - Middle: FAQ test results (primary focus) with citation/source indicators
+  - Bottom: Control test result (foundational check)
+  - Collapsed: LLM responses (supporting detail)
+  - Clear visual hierarchy guides user attention to most valuable insights
+
+**Design Rationale**: Users care most about whether their content appears in AI citations and sources for each question. Control test and LLM responses are supporting details that shouldn't dominate the visual hierarchy. Progressive disclosure of FAQ questions during analysis improves engagement and transparency.
 
 ### Version 1.2.1 (2025-10-21) 🎨 STYLING UPDATE
 **UI Theme Migration: Zinc → Slate Colors**

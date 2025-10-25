@@ -19,6 +19,13 @@ interface ResultsViewProps {
   submissionId: string
 }
 
+interface FAQ {
+  question: string
+  answer: string
+  category: string
+  numbers: string[]
+}
+
 interface AnalysisResults {
   submission: {
     id: string
@@ -28,6 +35,7 @@ interface AnalysisResults {
     scrapingError?: string
     createdAt: string
     completedAt?: string
+    generatedFaqs?: FAQ[]
     testMetrics?: {
       isAccessible: boolean
       inSourcesCount: number
@@ -203,54 +211,6 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
           )}
         </div>
 
-        {/* Control Test Card - Tier 1 */}
-        {(submission?.status === 'running_control' ||
-          submission?.status === 'testing_faqs' ||
-          submission?.status === 'completed' ||
-          data?.submission?.testMetrics) && (
-          <div className="mb-8">
-            <div className="bg-card border rounded-lg p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-lg font-semibold">Control Test (Tier 1)</h2>
-                {submission.status === 'running_control' && (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground mb-3">
-                Verifies if OpenAI can access and read the article directly
-              </p>
-              {submission.status === 'running_control' ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Testing accessibility...</span>
-                </div>
-              ) : data?.submission?.testMetrics ? (
-                <div
-                  className={`flex items-center gap-2 ${
-                    data.submission.testMetrics.isAccessible
-                      ? 'text-green-600'
-                      : 'text-red-600'
-                  }`}
-                >
-                  {data.submission.testMetrics.isAccessible ? (
-                    <>
-                      <CheckCircle className="h-5 w-5" />
-                      <span className="font-medium">Passed - Article is accessible</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-5 w-5" />
-                      <span className="font-medium">Failed - Article not accessible</span>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <Skeleton className="h-6 w-48" />
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Statistics Cards - with skeleton support */}
         <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {/* Citation Rate Card */}
@@ -278,7 +238,7 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
             <p className="text-sm text-muted-foreground mb-1">Cited</p>
             {statistics ? (
               <>
-                <p className="text-3xl font-bold text-green-600">
+                <p className="text-3xl font-bold">
                   {statistics.citedCount}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">In citations</p>
@@ -296,7 +256,7 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
             <p className="text-sm text-muted-foreground mb-1">Mentioned</p>
             {statistics ? (
               <>
-                <p className="text-3xl font-bold text-yellow-600">
+                <p className="text-3xl font-bold">
                   {statistics.mentionedCount}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">In sources only</p>
@@ -314,7 +274,7 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
             <p className="text-sm text-muted-foreground mb-1">Not Found</p>
             {statistics ? (
               <>
-                <p className="text-3xl font-bold text-red-600">
+                <p className="text-3xl font-bold">
                   {statistics.notFoundCount}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">No mentions</p>
@@ -332,7 +292,7 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
             <p className="text-sm text-muted-foreground mb-1">Total Sources</p>
             {statistics ? (
               <>
-                <p className="text-3xl font-bold text-blue-600">
+                <p className="text-3xl font-bold">
                   {statistics.totalSources || 0}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">Retrieved</p>
@@ -350,7 +310,7 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
             <p className="text-sm text-muted-foreground mb-1">Total Citations</p>
             {statistics ? (
               <>
-                <p className="text-3xl font-bold text-purple-600">
+                <p className="text-3xl font-bold">
                   {statistics.totalCitations || 0}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">In answers</p>
@@ -380,9 +340,9 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
         <div className="space-y-4">
           <div className="flex items-center gap-3 mb-4">
             <h2 className="text-2xl font-bold">Test Results</h2>
-            {submission?.status === 'testing_faqs' && (
+            {submission?.status === 'testing_faqs' && submission.generatedFaqs && (
               <span className="text-sm font-medium text-blue-600">
-                {results.length} of 5 tests completed
+                {results.length} of {submission.generatedFaqs.length} tests completed
               </span>
             )}
             {(submission?.status === 'scraping' ||
@@ -394,127 +354,221 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
             )}
           </div>
 
-          {/* Real results */}
-          {results.map((result) => (
-            <div
-              key={result.id}
-              className="bg-card border rounded-lg p-6 animate-in fade-in duration-300"
-            >
-              <div className="flex items-start gap-3 mb-4">
-                {result.foundInCitations ? (
-                  <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-                ) : result.foundInSources ? (
-                  <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+          {/* Control Test Card - Tier 1 (first test, at top) */}
+          {(submission?.status === 'running_control' ||
+            submission?.status === 'testing_faqs' ||
+            submission?.status === 'completed' ||
+            data?.submission?.testMetrics) && (
+            <div className="bg-muted/30 border rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Control Test (Tier 1)
+                  </h3>
+                  {submission.status === 'running_control' && (
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+                {submission.status === 'running_control' ? (
+                  <span className="text-xs text-muted-foreground">Testing...</span>
+                ) : data?.submission?.testMetrics ? (
+                  <div className="flex items-center gap-1.5">
+                    {data.submission.testMetrics.isAccessible ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <span className="text-sm font-medium">Accessible</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="h-4 w-4 text-red-600" />
+                        <span className="text-sm font-medium">Not Accessible</span>
+                      </>
+                    )}
+                  </div>
                 ) : (
-                  <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <Skeleton className="h-4 w-24" />
                 )}
-                <div className="flex-1">
-                  <h3 className="font-semibold mb-2">{result.question}</h3>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Verifies if OpenAI can access the article directly
+              </p>
+            </div>
+          )}
 
-                  {result.llmResponse && (
-                    <div className="mb-3 p-3 bg-muted/50 rounded border border-border">
-                      <p className="text-xs text-muted-foreground mb-1 font-medium">
-                        LLM Response:
-                      </p>
-                      <p className="text-sm">{result.llmResponse}</p>
+          {/* Show generated questions with progressive results loading */}
+          {submission?.generatedFaqs && submission.generatedFaqs.length > 0 ? (
+            // We have generated questions - show all of them with results or skeletons
+            submission.generatedFaqs.map((faq, index) => {
+              const result = results.find(r => r.question === faq.question)
+
+              if (result) {
+                // Question has completed results - show full result card
+                return (
+                  <div
+                    key={result.id}
+                    className="bg-card border rounded-lg p-6 animate-in fade-in duration-300"
+                  >
+                    <div className="flex items-start gap-3">
+                      {result.foundInCitations ? (
+                        <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                      ) : result.foundInSources ? (
+                        <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-3">{result.question}</h3>
+
+                        {/* Primary Insight: Citation vs Sources Status */}
+                        <div className="mb-4 space-y-2">
+                          {result.foundInCitations && (
+                            <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-900">
+                              <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                              <span className="text-sm font-medium text-green-700 dark:text-green-400">
+                                ✓ Found in Citations (Tier 3) - Highest Value
+                              </span>
+                            </div>
+                          )}
+
+                          {result.foundInSources && !result.foundInCitations && (
+                            <div className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 rounded border border-yellow-200 dark:border-yellow-900">
+                              <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+                              <span className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+                                ⚠ In Sources Only (Tier 2) - Not Cited in Answer
+                              </span>
+                            </div>
+                          )}
+
+                          {!result.targetUrlFound && (
+                            <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-950/20 rounded border border-red-200 dark:border-red-900">
+                              <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                              <span className="text-sm font-medium text-red-700 dark:text-red-400">
+                                ✗ Not Found - Missing from Results
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Citations - collapsed by default */}
+                        {result.citations.length > 0 && (
+                          <details className="mb-3">
+                            <summary className="text-sm font-medium cursor-pointer hover:text-foreground flex items-center gap-2">
+                              <span>Citations ({result.citations.length})</span>
+                              {result.foundInCitations && (
+                                <span className="text-xs text-green-600">✓ Your article cited</span>
+                              )}
+                            </summary>
+                            <ul className="mt-2 space-y-1 text-sm pl-4 border-l-2 border-muted">
+                              {result.citations.map((citation, idx) => (
+                                <li key={idx} className="flex items-start gap-2 py-1">
+                                  <span className="text-muted-foreground flex-shrink-0 font-mono text-xs">
+                                    [{citation.position}]
+                                  </span>
+                                  <a
+                                    href={citation.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 break-all"
+                                  >
+                                    {citation.title || citation.url}
+                                    <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+
+                        {/* Sources - collapsed by default */}
+                        {result.sources.length > 0 && (
+                          <details className="mb-3">
+                            <summary className="text-sm font-medium cursor-pointer hover:text-foreground flex items-center gap-2">
+                              <span>Sources ({result.sources.length})</span>
+                              {result.foundInSources && (
+                                <span className="text-xs text-yellow-600">⚠ Your article listed</span>
+                              )}
+                            </summary>
+                            <ul className="mt-2 space-y-1 text-sm pl-4 border-l-2 border-muted">
+                              {result.sources.map((source, idx) => (
+                                <li key={idx} className="flex items-start gap-2 py-1">
+                                  <span className="text-muted-foreground flex-shrink-0 font-mono text-xs">
+                                    [{idx + 1}]
+                                  </span>
+                                  <a
+                                    href={source}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 break-all"
+                                  >
+                                    {source}
+                                    <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+
+                        {/* LLM Response - collapsed, under citations/sources */}
+                        {result.llmResponse && (
+                          <details className="mt-3">
+                            <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+                              View full AI response
+                            </summary>
+                            <div className="mt-2 p-3 bg-muted/30 rounded border border-border">
+                              <p className="text-sm text-muted-foreground">{result.llmResponse}</p>
+                            </div>
+                          </details>
+                        )}
+                      </div>
                     </div>
-                  )}
-
-                  {result.foundInCitations && (
-                    <p className="text-sm text-green-600 mb-2">
-                      ✓ Found in citations
-                    </p>
-                  )}
-
-                  {result.foundInSources && !result.foundInCitations && (
-                    <p className="text-sm text-yellow-600 mb-2">
-                      ⚠ Mentioned in sources but not cited
-                    </p>
-                  )}
-
-                  {!result.targetUrlFound && (
-                    <p className="text-sm text-red-600 mb-2">
-                      ✗ Not found in response
-                    </p>
-                  )}
-
-                  {result.citations.length > 0 && (
-                    <details className="mt-3">
-                      <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
-                        View {result.citations.length} citation(s)
-                      </summary>
-                      <ul className="mt-2 space-y-1 text-sm">
-                        {result.citations.map((citation, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
-                            <span className="text-muted-foreground flex-shrink-0">
-                              {citation.position}.
-                            </span>
-                            <a
-                              href={citation.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 break-all"
-                            >
-                              {citation.title || citation.url}
-                              <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-
-                  {result.sources.length > 0 && (
-                    <details className="mt-3">
-                      <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
-                        View {result.sources.length} source(s)
-                      </summary>
-                      <ul className="mt-2 space-y-1 text-sm">
-                        {result.sources.map((source, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
-                            <span className="text-muted-foreground flex-shrink-0">
-                              {idx + 1}.
-                            </span>
-                            <a
-                              href={source}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 break-all"
-                            >
-                              {source}
-                              <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
+                  </div>
+                )
+              } else {
+                // Question hasn't been tested yet - show question with skeleton loaders
+                return (
+                  <div
+                    key={`pending-${index}`}
+                    className="bg-card border rounded-lg p-6"
+                  >
+                    <div className="flex items-start gap-3">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-3">{faq.question}</h3>
+                        <div className="space-y-3">
+                          <Skeleton className="h-12 w-full" />
+                          <Skeleton className="h-4 w-3/4" />
+                          <Skeleton className="h-4 w-1/2" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
+            })
+          ) : (
+            // No generated questions yet - show generic skeleton placeholders
+            Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={`skeleton-${i}`}
+                className="bg-card border rounded-lg p-6"
+              >
+                <div className="flex items-start gap-3">
+                  <Skeleton className="h-5 w-5 rounded-full flex-shrink-0" />
+                  <div className="flex-1 space-y-3">
+                    <Skeleton className="h-5 w-full" />
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-
-          {/* Skeleton placeholders for pending results */}
-          {Array.from({ length: Math.max(0, 5 - results.length) }).map((_, i) => (
-            <div
-              key={`skeleton-${i}`}
-              className="bg-card border rounded-lg p-6"
-            >
-              <div className="flex items-start gap-3">
-                <Skeleton className="h-5 w-5 rounded-full flex-shrink-0" />
-                <div className="flex-1 space-y-3">
-                  <Skeleton className="h-5 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-32" />
-                </div>
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
         {/* Footer Actions */}
         <div className="mt-12 text-center">
-          <Button onClick={() => window.location.href = '/'}>
+          <Button onClick={() => (window.location.href = '/')}>
             Analyze Another Article
           </Button>
         </div>

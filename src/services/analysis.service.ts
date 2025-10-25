@@ -22,7 +22,7 @@ import { saveResult } from '@/repositories/results.repository'
 import { scrapeArticle } from '@/services/scraper.service'
 import { generateFAQs } from '@/services/faq-generator.service'
 import {
-  runBatchSearchTests,
+  runSearchTest,
   runControlTest,
 } from '@/services/search-tester.service'
 import {
@@ -63,10 +63,8 @@ export async function analyzeArticle(
   console.log(`[Analysis] Starting analysis for submission ${submissionId}`)
 
   try {
-    // Phase 1: Update status to processing
-    await updateSubmissionStatus(submissionId, 'processing', undefined, env)
-
-    // Phase 2: Scrape article
+    // Phase 1: Scrape article
+    await updateSubmissionStatus(submissionId, 'scraping', undefined, env)
     console.log(`[Analysis] Phase 1: Scraping article...`)
     const article = await scrapeArticle(url)
 
@@ -84,7 +82,8 @@ export async function analyzeArticle(
     )
     console.log(`[Analysis] Article scraped: ${scrapedArticle.title}`)
 
-    // Phase 3: Generate FAQ pairs
+    // Phase 2: Generate FAQ pairs
+    await updateSubmissionStatus(submissionId, 'generating_faqs', undefined, env)
     console.log(`[Analysis] Phase 2: Generating FAQs...`)
     const faqs = await generateFAQsPhase(
       submissionId,
@@ -94,7 +93,8 @@ export async function analyzeArticle(
     )
     console.log(`[Analysis] Generated ${faqs.length} FAQ pairs`)
 
-    // Phase 4: Run control test (Tier 1)
+    // Phase 3: Run control test (Tier 1)
+    await updateSubmissionStatus(submissionId, 'running_control', undefined, env)
     console.log(`[Analysis] Phase 3: Running control test (Tier 1)...`)
     const isAccessible = await runControlTest(
       url,
@@ -102,12 +102,25 @@ export async function analyzeArticle(
     )
     console.log(`[Analysis] Control test: ${isAccessible ? 'PASS ✅' : 'FAIL ❌'}`)
 
-    // Phase 5: Test FAQ search visibility (Tier 2 & 3)
+    // Save control test result immediately for progressive display
+    await updateTestMetrics(
+      submissionId,
+      {
+        isAccessible,
+        inSourcesCount: 0,
+        inCitationsCount: 0,
+        totalFaqs: faqs.length,
+      },
+      env
+    )
+
+    // Phase 4: Test FAQ search visibility (Tier 2 & 3)
     // Skip if control test fails
     let tier2Count = 0
     let tier3Count = 0
 
     if (isAccessible) {
+      await updateSubmissionStatus(submissionId, 'testing_faqs', undefined, env)
       console.log(`[Analysis] Phase 4: Testing FAQ search visibility...`)
       const testMetrics = await testFAQVisibility(
         submissionId,
@@ -230,35 +243,60 @@ async function testFAQVisibility(
       `[Analysis] Testing ${faqs.length} FAQ questions with OpenAI web search...`
     )
 
-    const inputs = faqs.map((faq) => ({
-      question: faq.question,
-      targetUrl,
-    }))
+    const allResults = []
 
-    const batchResult = await runBatchSearchTests(inputs, env.OPENAI_API_KEY)
+    // Test and save each FAQ individually for progressive updates
+    for (let i = 0; i < faqs.length; i++) {
+      const faq = faqs[i]
+      const questionNumber = i + 1
 
-    // Save each test result
-    for (const result of batchResult.results) {
-      await saveResult(
-        submissionId,
-        result.question,
-        result.targetUrlFound,
-        result.foundInSources,
-        result.foundInCitations,
-        result.citations,
-        result.sources,
-        result.responseTimeMs,
-        result.llmResponse,
-        env
+      console.log(
+        `[Analysis] Testing FAQ ${questionNumber}/${faqs.length}: "${faq.question}"`
       )
+
+      try {
+        const result = await runSearchTest(
+          {
+            question: faq.question,
+            targetUrl,
+          },
+          env.OPENAI_API_KEY
+        )
+
+        // Save result immediately to database for progressive display
+        await saveResult(
+          submissionId,
+          result.question,
+          result.targetUrlFound,
+          result.foundInSources,
+          result.foundInCitations,
+          result.citations,
+          result.sources,
+          result.responseTimeMs,
+          result.llmResponse,
+          env
+        )
+
+        allResults.push(result)
+
+        console.log(
+          `[Analysis] ✅ FAQ ${questionNumber}/${faqs.length} completed and saved`
+        )
+      } catch (error) {
+        console.error(
+          `[Analysis] ❌ FAQ ${questionNumber}/${faqs.length} failed:`,
+          error
+        )
+        // Continue with next test even if one fails
+      }
     }
 
     console.log(
-      `[Analysis] Saved ${batchResult.results.length} test results to database`
+      `[Analysis] All ${allResults.length} FAQ test results saved to database`
     )
 
     // Calculate 3-tier metrics
-    const metrics = calculateTestMetrics(batchResult.results, isAccessible)
+    const metrics = calculateTestMetrics(allResults, isAccessible)
     const metricsForStorage = formatMetricsForStorage(metrics)
 
     // Store test metrics

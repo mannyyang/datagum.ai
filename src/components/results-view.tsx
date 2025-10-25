@@ -28,6 +28,12 @@ interface AnalysisResults {
     scrapingError?: string
     createdAt: string
     completedAt?: string
+    testMetrics?: {
+      isAccessible: boolean
+      inSourcesCount: number
+      inCitationsCount: number
+      totalFaqs: number
+    }
   }
   results: TestResult[]
   statistics: {
@@ -188,10 +194,62 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
           )}
           {isProcessing && (
             <p className="text-sm text-muted-foreground mt-2">
-              Analyzing your article... ({results.length} of 5 questions tested)
+              {submission.status === 'scraping' && '📄 Scraping article...'}
+              {submission.status === 'generating_faqs' && '🤔 Generating FAQ questions...'}
+              {submission.status === 'running_control' && '🔍 Running control test (Tier 1)...'}
+              {submission.status === 'testing_faqs' && `🧪 Testing FAQs... (${results.length} of 5 completed)`}
+              {!submission.status && 'Analyzing your article...'}
             </p>
           )}
         </div>
+
+        {/* Control Test Card - Tier 1 */}
+        {(submission?.status === 'running_control' ||
+          submission?.status === 'testing_faqs' ||
+          submission?.status === 'completed' ||
+          data?.submission?.testMetrics) && (
+          <div className="mb-8">
+            <div className="bg-card border rounded-lg p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-lg font-semibold">Control Test (Tier 1)</h2>
+                {submission.status === 'running_control' && (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Verifies if OpenAI can access and read the article directly
+              </p>
+              {submission.status === 'running_control' ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Testing accessibility...</span>
+                </div>
+              ) : data?.submission?.testMetrics ? (
+                <div
+                  className={`flex items-center gap-2 ${
+                    data.submission.testMetrics.isAccessible
+                      ? 'text-green-600'
+                      : 'text-red-600'
+                  }`}
+                >
+                  {data.submission.testMetrics.isAccessible ? (
+                    <>
+                      <CheckCircle className="h-5 w-5" />
+                      <span className="font-medium">Passed - Article is accessible</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-5 w-5" />
+                      <span className="font-medium">Failed - Article not accessible</span>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <Skeleton className="h-6 w-48" />
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Statistics Cards - with skeleton support */}
         <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
@@ -322,9 +380,16 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
         <div className="space-y-4">
           <div className="flex items-center gap-3 mb-4">
             <h2 className="text-2xl font-bold">Test Results</h2>
-            {isProcessing && (
+            {submission?.status === 'testing_faqs' && (
+              <span className="text-sm font-medium text-blue-600">
+                {results.length} of 5 tests completed
+              </span>
+            )}
+            {(submission?.status === 'scraping' ||
+              submission?.status === 'generating_faqs' ||
+              submission?.status === 'running_control') && (
               <span className="text-sm text-muted-foreground">
-                {results.length} of 5 completed
+                Preparing tests...
               </span>
             )}
           </div>

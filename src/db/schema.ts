@@ -46,7 +46,7 @@ export const contentAnalysisSubmissions = pgTable(
 
     // Status tracking
     status: varchar('status', { length: 20 }).notNull().default('pending'),
-    // Status values: 'pending' | 'processing' | 'completed' | 'failed'
+    // Status values: 'pending' | 'scraping' | 'generating_faqs' | 'running_control' | 'testing_faqs' | 'completed' | 'failed'
 
     // Generated FAQs (stored as JSON array of FAQ objects)
     // Structure: Array<{ question: string, answer: string, category: string, numbers: string[] }>
@@ -160,7 +160,14 @@ export type AnalysisResult = typeof contentAnalysisResults.$inferSelect
 export type NewAnalysisResult = typeof contentAnalysisResults.$inferInsert
 
 // Status type
-export type SubmissionStatus = 'pending' | 'processing' | 'completed' | 'failed'
+export type SubmissionStatus =
+  | 'pending'
+  | 'scraping'
+  | 'generating_faqs'
+  | 'running_control'
+  | 'testing_faqs'
+  | 'completed'
+  | 'failed'
 
 // Citation type (for JSON fields)
 export interface CitationInfo {

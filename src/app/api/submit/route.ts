@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { validateURL, sanitizeURL } from '@/services/url-validator.service'
 import { checkRateLimit, RateLimitError } from '@/services/rate-limiter.service'
 import { createSubmission } from '@/repositories/submission.repository'
@@ -42,52 +43,32 @@ export async function POST(request: NextRequest) {
     // Create submission record
     const submission = await createSubmission(cleanUrl, userIp)
 
-    // Run analysis synchronously
-    console.log(`[Submit API] Starting analysis for ${submission.id}`)
-    const analysisResult = await analyzeArticle(submission.id, submission.url)
+    // Get Cloudflare context for background processing
+    const { ctx } = await getCloudflareContext()
 
-    // Calculate success rates from 3-tier metrics
-    const tier2SuccessRate =
-      analysisResult.faqCount && analysisResult.faqCount > 0
-        ? ((analysisResult.tier2Count ?? 0) / analysisResult.faqCount) * 100
-        : undefined
-    const tier3SuccessRate =
-      analysisResult.faqCount && analysisResult.faqCount > 0
-        ? ((analysisResult.tier3Count ?? 0) / analysisResult.faqCount) * 100
-        : undefined
-
-    // Return success response with analysis results
-    return NextResponse.json(
+    // Return immediately with submission ID
+    const response = NextResponse.json(
       {
-        success: analysisResult.success,
         submissionId: submission.id,
         url: submission.url,
-        status: analysisResult.success ? 'completed' : 'failed',
-        message: analysisResult.success
-          ? 'Article analysis completed'
-          : 'Article analysis failed',
+        status: 'pending',
+        message: 'Analysis started',
         resultsUrl: `/results/${submission.id}`,
-        analysis: {
-          articleTitle: analysisResult.articleTitle,
-          faqCount: analysisResult.faqCount,
-          testsCompleted: analysisResult.testsCompleted,
-          tier1Passed: analysisResult.tier1Passed,
-          tier2Count: analysisResult.tier2Count,
-          tier3Count: analysisResult.tier3Count,
-          tier2SuccessRate:
-            tier2SuccessRate !== undefined
-              ? Math.round(tier2SuccessRate * 10) / 10
-              : undefined,
-          tier3SuccessRate:
-            tier3SuccessRate !== undefined
-              ? Math.round(tier3SuccessRate * 10) / 10
-              : undefined,
-          duration: analysisResult.duration,
-        },
-        error: analysisResult.error,
       },
       { status: 200 }
     )
+
+    // Run analysis in background (continues after response sent)
+    ctx.waitUntil(
+      analyzeArticle(submission.id, submission.url).catch((error) => {
+        console.error(
+          `[Submit API] Background analysis failed for ${submission.id}:`,
+          error
+        )
+      })
+    )
+
+    return response
   } catch (error) {
     console.error('Submit API error:', error)
 

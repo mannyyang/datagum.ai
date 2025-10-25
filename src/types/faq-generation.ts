@@ -108,10 +108,10 @@ export interface FAQTestResult {
   citationPosition?: number
 
   /** All sources returned by OpenAI */
-  allSources: any[]
+  allSources: string[]
 
   /** All citations in the response */
-  allCitations: any[]
+  allCitations: Array<{ url: string; title?: string; position: number }>
 
   /** Response time in milliseconds */
   responseTimeMs: number

@@ -65,7 +65,7 @@ export function SubmitForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-2xl mx-auto px-6 mt-12">
+    <form onSubmit={handleSubmit} className="max-w-2xl mx-auto px-6">
       <div className="flex flex-col sm:flex-row gap-3">
         <Input
           type="url"

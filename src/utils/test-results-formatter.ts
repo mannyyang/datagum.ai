@@ -8,7 +8,7 @@
  */
 
 import type { SearchTestResult } from '@/types/search-testing'
-import type { FAQ, FAQTestMetrics } from '@/types/faq-generation'
+import type { FAQTestMetrics } from '@/types/faq-generation'
 import type { TestMetricsData } from '@/db/schema'
 
 /**

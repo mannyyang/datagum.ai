@@ -8,7 +8,7 @@
  * Handles all database operations related to article submissions.
  */
 
-import { eq, gte, and } from 'drizzle-orm'
+import { eq, gte, and, desc } from 'drizzle-orm'
 import { getDb, getDbFromEnv } from '@/lib/db'
 import {
   contentAnalysisSubmissions,
@@ -164,7 +164,7 @@ export async function updateGeneratedQuestions(
   await db
     .update(contentAnalysisSubmissions)
     .set({
-      generatedQuestions: questions,
+      generatedFaqs: questions,
       updatedAt: new Date(),
     })
     .where(eq(contentAnalysisSubmissions.id, id))
@@ -192,6 +192,29 @@ export async function updateGeneratedFAQs(
       updatedAt: new Date(),
     })
     .where(eq(contentAnalysisSubmissions.id, id))
+}
+
+/**
+ * Get recent submissions (for home page table)
+ */
+export async function getRecentSubmissions(
+  limit: number = 10,
+  env?: CloudflareEnv
+) {
+  const db = env ? getDbFromEnv(env) : await getDb()
+
+  return await db
+    .select({
+      id: contentAnalysisSubmissions.id,
+      url: contentAnalysisSubmissions.url,
+      status: contentAnalysisSubmissions.status,
+      articleTitle: contentAnalysisSubmissions.articleTitle,
+      createdAt: contentAnalysisSubmissions.createdAt,
+      completedAt: contentAnalysisSubmissions.completedAt,
+    })
+    .from(contentAnalysisSubmissions)
+    .orderBy(desc(contentAnalysisSubmissions.createdAt))
+    .limit(limit)
 }
 
 /**

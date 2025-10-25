@@ -14,6 +14,8 @@ import { useEffect, useState } from 'react'
 import { Loader2, CheckCircle, XCircle, AlertCircle, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Card, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 
 interface ResultsViewProps {
   submissionId: string
@@ -212,128 +214,151 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
         </div>
 
         {/* Statistics Cards - with skeleton support */}
-        <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8 *:from-primary/5 *:to-card *:bg-gradient-to-t dark:*:bg-card *:shadow-xs">
           {/* Citation Rate Card */}
-          <div className="bg-card border rounded-lg p-6">
-            <p className="text-sm text-muted-foreground mb-1">Citation Rate</p>
-            {statistics ? (
-              <>
-                <p className="text-3xl font-bold">
+          <Card className="@container/card">
+            <CardHeader>
+              <CardDescription>Citation Rate</CardDescription>
+              {statistics ? (
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
                   {statistics.citationRate.toFixed(0)}%
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
+                </CardTitle>
+              ) : (
+                <Skeleton className="h-10 w-16" />
+              )}
+            </CardHeader>
+            <CardFooter className="flex-col items-start gap-1.5 text-sm">
+              {statistics ? (
+                <div className="text-muted-foreground text-xs">
                   {statistics.citedCount} of {statistics.totalTests} tests
-                </p>
-              </>
-            ) : (
-              <>
-                <Skeleton className="h-10 w-16 mb-1" />
+                </div>
+              ) : (
                 <Skeleton className="h-4 w-24" />
-              </>
-            )}
-          </div>
+              )}
+            </CardFooter>
+          </Card>
 
           {/* Cited Card */}
-          <div className="bg-card border rounded-lg p-6">
-            <p className="text-sm text-muted-foreground mb-1">Cited</p>
-            {statistics ? (
-              <>
-                <p className="text-3xl font-bold">
+          <Card className="@container/card">
+            <CardHeader>
+              <CardDescription>Cited</CardDescription>
+              {statistics ? (
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
                   {statistics.citedCount}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">In citations</p>
-              </>
-            ) : (
-              <>
-                <Skeleton className="h-10 w-12 mb-1" />
+                </CardTitle>
+              ) : (
+                <Skeleton className="h-10 w-12" />
+              )}
+            </CardHeader>
+            <CardFooter className="flex-col items-start gap-1.5 text-sm">
+              {statistics ? (
+                <div className="text-muted-foreground text-xs">In citations</div>
+              ) : (
                 <Skeleton className="h-4 w-20" />
-              </>
-            )}
-          </div>
+              )}
+            </CardFooter>
+          </Card>
 
           {/* Mentioned Card */}
-          <div className="bg-card border rounded-lg p-6">
-            <p className="text-sm text-muted-foreground mb-1">Mentioned</p>
-            {statistics ? (
-              <>
-                <p className="text-3xl font-bold">
+          <Card className="@container/card">
+            <CardHeader>
+              <CardDescription>Mentioned</CardDescription>
+              {statistics ? (
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
                   {statistics.mentionedCount}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">In sources only</p>
-              </>
-            ) : (
-              <>
-                <Skeleton className="h-10 w-12 mb-1" />
+                </CardTitle>
+              ) : (
+                <Skeleton className="h-10 w-12" />
+              )}
+            </CardHeader>
+            <CardFooter className="flex-col items-start gap-1.5 text-sm">
+              {statistics ? (
+                <div className="text-muted-foreground text-xs">In sources only</div>
+              ) : (
                 <Skeleton className="h-4 w-24" />
-              </>
-            )}
-          </div>
+              )}
+            </CardFooter>
+          </Card>
 
           {/* Not Found Card */}
-          <div className="bg-card border rounded-lg p-6">
-            <p className="text-sm text-muted-foreground mb-1">Not Found</p>
-            {statistics ? (
-              <>
-                <p className="text-3xl font-bold">
+          <Card className="@container/card">
+            <CardHeader>
+              <CardDescription>Not Found</CardDescription>
+              {statistics ? (
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
                   {statistics.notFoundCount}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">No mentions</p>
-              </>
-            ) : (
-              <>
-                <Skeleton className="h-10 w-12 mb-1" />
+                </CardTitle>
+              ) : (
+                <Skeleton className="h-10 w-12" />
+              )}
+            </CardHeader>
+            <CardFooter className="flex-col items-start gap-1.5 text-sm">
+              {statistics ? (
+                <div className="text-muted-foreground text-xs">No mentions</div>
+              ) : (
                 <Skeleton className="h-4 w-20" />
-              </>
-            )}
-          </div>
+              )}
+            </CardFooter>
+          </Card>
 
           {/* Total Sources Card */}
-          <div className="bg-card border rounded-lg p-6">
-            <p className="text-sm text-muted-foreground mb-1">Total Sources</p>
-            {statistics ? (
-              <>
-                <p className="text-3xl font-bold">
+          <Card className="@container/card">
+            <CardHeader>
+              <CardDescription>Total Sources</CardDescription>
+              {statistics ? (
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
                   {statistics.totalSources || 0}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">Retrieved</p>
-              </>
-            ) : (
-              <>
-                <Skeleton className="h-10 w-12 mb-1" />
+                </CardTitle>
+              ) : (
+                <Skeleton className="h-10 w-12" />
+              )}
+            </CardHeader>
+            <CardFooter className="flex-col items-start gap-1.5 text-sm">
+              {statistics ? (
+                <div className="text-muted-foreground text-xs">Retrieved</div>
+              ) : (
                 <Skeleton className="h-4 w-20" />
-              </>
-            )}
-          </div>
+              )}
+            </CardFooter>
+          </Card>
 
           {/* Total Citations Card */}
-          <div className="bg-card border rounded-lg p-6">
-            <p className="text-sm text-muted-foreground mb-1">Total Citations</p>
-            {statistics ? (
-              <>
-                <p className="text-3xl font-bold">
+          <Card className="@container/card">
+            <CardHeader>
+              <CardDescription>Total Citations</CardDescription>
+              {statistics ? (
+                <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
                   {statistics.totalCitations || 0}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">In answers</p>
-              </>
-            ) : (
-              <>
-                <Skeleton className="h-10 w-12 mb-1" />
+                </CardTitle>
+              ) : (
+                <Skeleton className="h-10 w-12" />
+              )}
+            </CardHeader>
+            <CardFooter className="flex-col items-start gap-1.5 text-sm">
+              {statistics ? (
+                <div className="text-muted-foreground text-xs">In answers</div>
+              ) : (
                 <Skeleton className="h-4 w-20" />
-              </>
-            )}
-          </div>
+              )}
+            </CardFooter>
+          </Card>
         </div>
 
         {/* Average Position (if available) */}
         {statistics?.averagePosition && (
-          <div className="bg-card border rounded-lg p-6 mb-8">
-            <p className="text-sm text-muted-foreground mb-1">
-              Average Citation Position
-            </p>
-            <p className="text-2xl font-bold">
-              #{statistics.averagePosition.toFixed(1)}
-            </p>
-          </div>
+          <Card className="@container/card mb-8 from-primary/5 to-card bg-gradient-to-t dark:bg-card shadow-xs">
+            <CardHeader>
+              <CardDescription>Average Citation Position</CardDescription>
+              <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+                #{statistics.averagePosition.toFixed(1)}
+              </CardTitle>
+            </CardHeader>
+            <CardFooter className="flex-col items-start gap-1.5 text-sm">
+              <div className="text-muted-foreground text-xs">
+                Position in cited responses
+              </div>
+            </CardFooter>
+          </Card>
         )}
 
         {/* Test Results - with progressive loading */}
@@ -365,11 +390,11 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
                   <h3 className="text-sm font-medium text-muted-foreground">
                     Control Test (Tier 1)
                   </h3>
-                  {submission.status === 'running_control' && (
+                  {submission?.status === 'running_control' && (
                     <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                   )}
                 </div>
-                {submission.status === 'running_control' ? (
+                {submission?.status === 'running_control' ? (
                   <span className="text-xs text-muted-foreground">Testing...</span>
                 ) : data?.submission?.testMetrics ? (
                   <div className="flex items-center gap-1.5">
@@ -420,32 +445,26 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
                         <h3 className="font-semibold mb-3">{result.question}</h3>
 
                         {/* Primary Insight: Citation vs Sources Status */}
-                        <div className="mb-4 space-y-2">
+                        <div className="mb-4 flex flex-wrap gap-2">
                           {result.foundInCitations && (
-                            <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-900">
-                              <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
-                              <span className="text-sm font-medium text-green-700 dark:text-green-400">
-                                ✓ Found in Citations (Tier 3) - Highest Value
-                              </span>
-                            </div>
+                            <Badge variant="outline" className="text-green-700 dark:text-green-400 border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/20">
+                              <CheckCircle className="h-3 w-3 text-green-600" />
+                              Found in Citations (Tier 3)
+                            </Badge>
                           )}
 
                           {result.foundInSources && !result.foundInCitations && (
-                            <div className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 rounded border border-yellow-200 dark:border-yellow-900">
-                              <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
-                              <span className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
-                                ⚠ In Sources Only (Tier 2) - Not Cited in Answer
-                              </span>
-                            </div>
+                            <Badge variant="outline" className="text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-900 bg-yellow-50 dark:bg-yellow-950/20">
+                              <AlertCircle className="h-3 w-3 text-yellow-600" />
+                              In Sources Only (Tier 2)
+                            </Badge>
                           )}
 
                           {!result.targetUrlFound && (
-                            <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-950/20 rounded border border-red-200 dark:border-red-900">
-                              <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
-                              <span className="text-sm font-medium text-red-700 dark:text-red-400">
-                                ✗ Not Found - Missing from Results
-                              </span>
-                            </div>
+                            <Badge variant="outline" className="text-red-700 dark:text-red-400 border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20">
+                              <XCircle className="h-3 w-3 text-red-600" />
+                              Not Found
+                            </Badge>
                           )}
                         </div>
 
@@ -455,7 +474,10 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
                             <summary className="text-sm font-medium cursor-pointer hover:text-foreground flex items-center gap-2">
                               <span>Citations ({result.citations.length})</span>
                               {result.foundInCitations && (
-                                <span className="text-xs text-green-600">✓ Your article cited</span>
+                                <Badge variant="outline" className="text-green-700 dark:text-green-400 border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/20 text-xs px-1.5 py-0">
+                                  <CheckCircle className="h-2.5 w-2.5" />
+                                  Your article
+                                </Badge>
                               )}
                             </summary>
                             <ul className="mt-2 space-y-1 text-sm pl-4 border-l-2 border-muted">
@@ -485,7 +507,10 @@ export function ResultsView({ submissionId }: ResultsViewProps) {
                             <summary className="text-sm font-medium cursor-pointer hover:text-foreground flex items-center gap-2">
                               <span>Sources ({result.sources.length})</span>
                               {result.foundInSources && (
-                                <span className="text-xs text-yellow-600">⚠ Your article listed</span>
+                                <Badge variant="outline" className="text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-900 bg-yellow-50 dark:bg-yellow-950/20 text-xs px-1.5 py-0">
+                                  <AlertCircle className="h-2.5 w-2.5" />
+                                  Your article
+                                </Badge>
                               )}
                             </summary>
                             <ul className="mt-2 space-y-1 text-sm pl-4 border-l-2 border-muted">

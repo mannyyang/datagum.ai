@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSubmissionById } from '@/repositories/submission.repository'
 import { getResultsBySubmission } from '@/repositories/results.repository'
-import type { CitationInfo } from '@/db/schema'
+import type { CitationInfo, TestMetricsData } from '@/db/schema'
 
 export async function GET(
   request: NextRequest,
@@ -41,8 +41,8 @@ export async function GET(
 
     // Calculate total sources and citations across all results
     const totalSources = results.reduce((sum, r) => {
-      const sources = r.allSources as any[]
-      return sum + (sources?.length || 0)
+      const sources = r.allSources as unknown
+      return sum + (Array.isArray(sources) ? sources.length : 0)
     }, 0)
 
     const totalCitations = results.reduce((sum, r) => {
@@ -70,7 +70,7 @@ export async function GET(
         : undefined
 
     // Calculate 3-tier metrics from testMetrics if available
-    const testMetrics = submission.testMetrics as any
+    const testMetrics = submission.testMetrics as TestMetricsData | null
     const tier2SuccessRate =
       testMetrics && testMetrics.totalFaqs > 0
         ? (testMetrics.inSourcesCount / testMetrics.totalFaqs) * 100

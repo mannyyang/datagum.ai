@@ -1,497 +1,809 @@
 # Domain Model: Unit 1 - Article Submission & Validation
 
-**Version**: 1.1.2
-**Last Updated**: 2025-10-23
+**Version**: 2.0.0
+**Last Updated**: 2025-10-25
 **Epic**: Epic 1 - Article Submission & Validation
 **User Stories**: US-1.1, US-1.2, US-1.3
-**Status**: ✅ Implemented (Production - Cloudflare Workers)
+**Status**: ✅ Fully Implemented
 
 ---
 
 ## Executive Summary
 
-This domain model defines the components, attributes, behaviors, and interactions required to implement article URL submission with validation and rate limiting for the datagum.ai Article Analyzer. The model covers URL input capture, validation logic, rate limiting enforcement, and submission creation without including any code implementation or architectural diagrams.
+This domain model documents the **current implementation** of article URL submission with validation and rate limiting for the datagum.ai Article Analyzer. The system is a **single Next.js application** deployed to Cloudflare using OpenNext.js, featuring client-side form submission, server-side validation, rate limiting enforcement, and background job orchestration.
 
-### Key Business Requirements
+### Key Business Requirements (Implemented)
 - Accept article URLs from users via homepage form
 - Validate URL format and security constraints
 - Enforce 3 submissions per IP per 24-hour rate limit
 - Create unique submission record with pending status
-- Queue background job for processing
-- Redirect user to results page
+- Process article analysis in background using `ctx.waitUntil()`
+- Redirect user to results page with progressive loading
 
-### Related User Stories
-- **US-1.1**: Submit Article URL
-- **US-1.2**: Rate Limiting
-- **US-1.3**: Input Validation & Security
+### Architecture
+- **Framework**: Next.js 15.4.6 with App Router and React 19.1.0
+- **Runtime**: Cloudflare Workers via `@opennextjs/cloudflare`
+- **Database**: Neon PostgreSQL with Drizzle ORM
+- **Background Processing**: `ctx.waitUntil()` for non-blocking async operations
+- **No Monorepo**: Single application structure (NOT Turborepo)
 
 ---
 
 ## Component Overview
 
-### 1. SubmissionFormComponent ⚠️
-**Type**: Frontend Client Component
-**Location**: `apps/web/src/components/` (to be implemented)
+| Component | Type | Location | Lines | Status |
+|-----------|------|----------|-------|--------|
+| SubmitForm | Client Component | `src/components/submit-form.tsx` | 94 | ✅ Implemented |
+| SubmissionAPIHandler | API Route | `src/app/api/submit/route.ts` | 148 | ✅ Implemented |
+| URLValidatorService | Service | `src/services/url-validator.service.ts` | 112 | ✅ Implemented |
+| RateLimiterService | Service | `src/services/rate-limiter.service.ts` | 57 | ✅ Implemented |
+| SubmissionRepository | Repository | `src/repositories/submission.repository.ts` | 219 | ✅ Implemented |
+| AnalysisService | Service | `src/services/analysis.service.ts` | 320 | ✅ Implemented |
+| Database Schema | Schema | `src/db/schema.ts` | 196 | ✅ Implemented |
+
+---
+
+## Component Details
+
+### 1. SubmitForm (Client Component)
+
+**Location**: `src/components/submit-form.tsx` (94 lines)
+**Type**: React Client Component
 **Responsibility**: Captures user input and handles form submission on the landing page
 
-**Implementation Status**: ⚠️ Pending implementation
+**Implementation**:
+```typescript
+'use client'
 
-**Attributes**:
-- `url`: string - The article URL entered by user
-- `isSubmitting`: boolean - Tracks submission state
-- `errorMessage`: string | null - Validation or API error message
+export function SubmitForm() {
+  const [url, setUrl] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-**Behaviors**:
-- `handleInputChange(value: string)`: Updates URL state as user types
-- `validateURLFormat(url: string)`: boolean - Client-side URL validation
-- `handleSubmit()`: Submits form and calls API
-- `displayError(message: string)`: Shows error message to user
-- `redirectToResults(submissionId: string)`: Navigates to results page
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSubmitting(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        setError(errorData.message)
+        return
+      }
+
+      const data = await response.json()
+      router.push(`/results/${data.submissionId}`)
+    } catch (error) {
+      setError('Failed to submit URL')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // ... form JSX with shadcn/ui components
+  // Inline error display below input field
+}
+```
+
+**Key Features**:
+- Uses `shadcn/ui` components (Input, Button)
+- Displays loading state during submission
+- Shows inline error messages (NOT toasts)
+- Redirects to results page on success
+- Real-time validation feedback
 
 **Interactions**:
-- Calls `SubmissionAPIHandler` to create submission
-- Receives validation errors from API
-- Redirects to `ResultsPage` on success
+- Calls `POST /api/submit` endpoint
+- Receives submission ID and redirects to `/results/[id]`
+- Displays error messages from API
 
 ---
 
-### 2. SubmissionAPIHandler ✅
-**Type**: API Route Handler
-**Location**: `apps/web/src/app/api/submit/route.ts` (119 lines)
+### 2. SubmissionAPIHandler (API Route)
+
+**Location**: `src/app/api/submit/route.ts` (148 lines)
+**Type**: Next.js App Router API Route
 **Responsibility**: Handles POST /api/submit endpoint for article submissions
 
-**Implementation Status**: ✅ Fully Implemented
+**Function Signature**:
+```typescript
+export async function POST(request: NextRequest): Promise<NextResponse>
+```
 
-**Attributes**:
-- `request`: HTTP Request object
-- `userIP`: string - Extracted from request headers
-- `requestBody`: Object containing submitted URL
+**Implementation Flow**:
+1. Parse request body and extract URL
+2. Sanitize and validate URL format
+3. Extract user IP from request headers
+4. Check rate limit (3 submissions per 24 hours)
+5. Create submission record in database
+6. Get Cloudflare context for background processing
+7. Return immediate response with submission ID
+8. Run article analysis in background via `ctx.waitUntil()`
 
-**Behaviors**:
-- `extractUserIP(request)`: string - Multi-tier IP extraction with Cloudflare priority
-  - **Priority 1**: `cf-connecting-ip` header (Cloudflare Workers - most reliable)
-  - **Priority 2**: `x-forwarded-for` header (proxy/load balancer support)
-  - **Priority 3**: `x-real-ip` header (alternative proxy header)
-  - **Priority 4**: `request.ip` property (Next.js built-in, if available)
-  - Returns `undefined` if no IP source available
-- `parseRequestBody(request)`: Object - Parses and validates JSON body
-- `validateRequest(body)`: void - Throws error if invalid
-- `handleSubmission(url, userIP)`: Response - Orchestrates submission flow
-- `sendSuccessResponse(submissionId, url)`: Response - Returns submission details
-- `sendErrorResponse(statusCode, message)`: Response - Returns error
+**IP Extraction Logic** (lines 100-148):
+```typescript
+function extractUserIP(request: NextRequest): string | undefined {
+  // Priority 1: Cloudflare-specific header (most reliable)
+  const cfConnectingIp = request.headers.get('cf-connecting-ip')
+  if (cfConnectingIp && !isLocalhostIP(cfConnectingIp)) {
+    return cfConnectingIp
+  }
 
-**Interactions**:
-- Uses `URLValidator` for validation
-- Uses `RateLimiter` to check submission limits
-- Uses `SubmissionRepository` to create database record
-- Uses `JobQueueService` to enqueue processing job
+  // Priority 2: X-Forwarded-For (proxy support)
+  const forwardedFor = request.headers.get('x-forwarded-for')
+  if (forwardedFor) {
+    const ip = forwardedFor.split(',')[0].trim()
+    if (ip && !isLocalhostIP(ip)) return ip
+  }
+
+  // Priority 3: X-Real-IP (alternative proxy header)
+  const realIp = request.headers.get('x-real-ip')
+  if (realIp && !isLocalhostIP(realIp)) return realIp
+
+  // Priority 4: request.ip (Next.js built-in)
+  const requestWithIp = request as NextRequest & { ip?: string }
+  if (requestWithIp.ip && !isLocalhostIP(requestWithIp.ip)) {
+    return requestWithIp.ip
+  }
+
+  return undefined // No rate limiting for localhost
+}
+```
+
+**Background Processing** (lines 61-69):
+```typescript
+// Get Cloudflare context for background processing
+const { ctx } = await getCloudflareContext()
+
+// Return immediately with submission ID
+const response = NextResponse.json({
+  submissionId: submission.id,
+  url: submission.url,
+  status: 'pending',
+  message: 'Analysis started',
+  resultsUrl: `/results/${submission.id}`
+}, { status: 200 })
+
+// Run analysis in background (continues after response sent)
+ctx.waitUntil(
+  analyzeArticle(submission.id, submission.url).catch((error) => {
+    console.error(`Background analysis failed:`, error)
+  })
+)
+
+return response
+```
+
+**Error Handling**:
+- Rate limit errors: 429 Too Many Requests
+- Validation errors: 400 Bad Request
+- Server errors: 500 Internal Server Error
+
+**Dependencies**:
+- `validateURL()`, `sanitizeURL()` from url-validator.service
+- `checkRateLimit()` from rate-limiter.service
+- `createSubmission()` from submission.repository
+- `analyzeArticle()` from analysis.service
+- `getCloudflareContext()` from @opennextjs/cloudflare
 
 ---
 
-### 3. URLValidator ⚠️
-**Type**: Service/Utility
-**Location**: `apps/web/src/lib/validators/url-validator.ts` (to be implemented)
+### 3. URLValidatorService
+
+**Location**: `src/services/url-validator.service.ts` (112 lines)
+**Type**: Validation Service
 **Responsibility**: Validates URL format and security constraints
 
-**Implementation Status**: ⚠️ Pending implementation
+**Public Functions**:
 
-**Attributes**:
-- `maxLength`: number - Maximum allowed URL length (2000)
-- `blockedPatterns`: RegExp[] - Patterns for localhost/private IPs
-- `requiredProtocols`: string[] - ['http', 'https']
+```typescript
+export function validateURL(url: string): void
+export function sanitizeURL(url: string): string
+```
 
-**Behaviors**:
-- `validateFormat(url: string)`: void - Throws if invalid URL syntax
-- `validateProtocol(url: URL)`: void - Ensures HTTP/HTTPS only
-- `validateLength(url: string)`: void - Checks max length constraint
-- `checkSecurityRestrictions(url: URL)`: void - Blocks private IPs, localhost
-- `isPrivateIP(hostname: string)`: boolean - Detects private IP addresses
-- `sanitizeURL(url: string)`: string - Removes potentially dangerous characters
+**Validation Rules Implemented**:
+1. Must be valid HTTP or HTTPS URL
+2. Cannot exceed 2000 characters
+3. Cannot be localhost (127.0.0.1, ::1, localhost)
+4. Cannot be private IP (10.x.x.x, 192.168.x.x, 172.16-31.x.x)
+5. Cannot be link-local (169.254.x.x)
+6. Must have valid protocol (http/https only)
 
-**Validation Rules**:
-- Must be valid HTTP or HTTPS URL
-- Cannot exceed 2000 characters
-- Cannot be localhost (127.0.0.1, ::1, localhost)
-- Cannot be private IP (10.x.x.x, 192.168.x.x, 172.16.x.x-172.31.x.x)
-- Cannot be link-local (169.254.x.x)
+**Security Features**:
+- SSRF protection via private IP blocking
+- DoS prevention via length limits
+- Protocol restriction prevents non-HTTP protocols
+- URL encoding normalization
 
-**Interactions**:
-- Called by `SubmissionAPIHandler` before processing
-- Throws `ValidationError` on failure
+**Error Handling**:
+- Throws generic `Error` objects with descriptive messages
+- Errors are caught by API route handler
+- Messages are user-friendly and actionable
+
+**Usage**:
+```typescript
+import { validateURL, sanitizeURL } from '@/services/url-validator.service'
+
+const cleanUrl = sanitizeURL(userInput)
+validateURL(cleanUrl) // Throws URLValidationError if invalid
+```
 
 ---
 
-### 4. RateLimiter ⚠️
+### 4. RateLimiterService
+
+**Location**: `src/services/rate-limiter.service.ts` (57 lines)
 **Type**: Service
-**Location**: `apps/web/src/lib/services/rate-limiter.ts` (to be implemented)
 **Responsibility**: Enforces submission rate limits per IP address
 
-**Implementation Status**: ⚠️ Pending implementation
+**Public Functions**:
 
-**Attributes**:
-- `maxSubmissions`: number - Maximum submissions allowed (3)
-- `windowHours`: number - Time window in hours (24)
-- `isProductionMode`: boolean - Determines if rate limiting is active
-
-**Behaviors**:
-- `checkRateLimit(userIP: string)`: void - Throws if limit exceeded
-- `getRecentSubmissions(userIP: string)`: number - Counts submissions in window
-- `calculateWindowStart()`: Date - Returns 24 hours ago timestamp
-- `isRateLimitEnabled()`: boolean - Checks if in production mode
+```typescript
+export async function checkRateLimit(userIp: string): Promise<void>
+```
 
 **Business Logic**:
-- Query database for submissions from this IP in last 24 hours
-- Count returned submissions
-- If count >= 3, throw RateLimitExceededError
-- If NODE_ENV !== 'production', skip rate limiting
+- Maximum: 3 submissions per IP per 24 hours
+- Throws `RateLimitError` if limit exceeded
+- Queries database for recent submissions
+- Rolling 24-hour window
 
-**Interactions**:
-- Uses `SubmissionRepository` to query recent submissions
-- Called by `SubmissionAPIHandler` before creating submission
+**Implementation**:
+```typescript
+const MAX_SUBMISSIONS = 3
+const WINDOW_HOURS = 24
+
+export async function checkRateLimit(userIp: string): Promise<void> {
+  const count = await countRecentSubmissionsByIP(
+    userIp,
+    WINDOW_HOURS
+  )
+
+  if (count >= MAX_SUBMISSIONS) {
+    throw new RateLimitError(
+      `Rate limit exceeded. You can analyze ${MAX_SUBMISSIONS} articles per day. Please try again later.`
+    )
+  }
+}
+```
+
+**Error Class**:
+```typescript
+export class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RateLimitError'
+  }
+}
+```
+
+**Dependencies**:
+- `countRecentSubmissionsByIP()` from submission.repository
 
 ---
 
-### 5. SubmissionRepository ⚠️
+### 5. SubmissionRepository
+
+**Location**: `src/repositories/submission.repository.ts` (219 lines)
 **Type**: Data Access Layer
-**Location**: `apps/web/src/lib/repositories/submission-repository.ts` (to be implemented)
 **Responsibility**: Manages database operations for submission records
 
-**Implementation Status**: ⚠️ Pending implementation (schema needs to be defined in `apps/web/src/db/schema.ts`)
+**Public Functions**:
 
-**Attributes**:
-- `db`: DrizzleORM database instance (from `apps/web/src/lib/db.ts`)
-- `submissionsTable`: Database table schema (to be defined)
-
-**Behaviors**:
-- `createSubmission(url, userIP)`: Submission - Inserts new record
-- `getSubmissionById(id)`: Submission | null - Retrieves by UUID
-- `countRecentSubmissionsByIP(ip, since)`: number - Counts submissions
-- `updateSubmissionStatus(id, status)`: void - Updates status field
-
-**Data Entity: Submission**:
-- `id`: UUID - Primary key, auto-generated
-- `url`: string - Article URL submitted
-- `userIP`: string | null - IPv4 or IPv6 address
-- `status`: enum - 'pending' | 'processing' | 'completed' | 'failed'
-- `scrapingError`: string | null - Error message if failed
-- `articleTitle`: string | null - Extracted after scraping
-- `articleContent`: string | null - First 5000 chars of content
-- `generatedQuestions`: string[] - JSON array of questions
-- `createdAt`: timestamp - Auto-set on creation
-- `updatedAt`: timestamp - Auto-updated
-- `completedAt`: timestamp | null - Set when processing completes
-
-**Database Constraints**:
-- Primary key: id (UUID)
-- Index on: status (for job queries)
-- Index on: userIP (for rate limiting)
-- Index on: createdAt (for rate limiting window)
-
-**Interactions**:
-- Called by `SubmissionAPIHandler` to create records
-- Called by `RateLimiter` to count submissions
-- Uses Drizzle ORM with Neon PostgreSQL
-
----
-
-### 6. JobQueueService ✅
-**Type**: Queue Integration Service
-**Location**: Integrated into API route via Cloudflare env binding
-**Responsibility**: Enqueues background jobs for article processing
-
-**Implementation Status**: ✅ Infrastructure ready (uses `packages/shared` types)
-
-**Attributes**:
-- `env.QUEUE`: Cloudflare Queue binding (configured in `apps/web/wrangler.jsonc`)
-- `queueName`: "datagum-queue"
-
-**Behaviors**:
-- `env.QUEUE.send(message)`: Promise<void> - Sends typed message to queue
-- Uses message types from `packages/shared/src/queue-messages.ts`
-- Automatic error handling via Cloudflare infrastructure
-
-**Job Message Structure** (from `packages/shared/src/queue-messages.ts`):
 ```typescript
-export const SubmissionJobMessageSchema = z.object({
-  type: z.literal('process-submission'),
-  payload: z.object({
-    submissionId: z.string().uuid(),
-    url: z.string().url(),
-    userId: z.string().optional(),
-  }),
-  timestamp: z.number(),
-  retryCount: z.number().default(0),
-})
+export async function createSubmission(
+  url: string,
+  userIp?: string
+): Promise<Submission>
 
-export type SubmissionJobMessage = z.infer<typeof SubmissionJobMessageSchema>
-```
+export async function getSubmissionById(
+  id: string
+): Promise<Submission | null>
 
-**Usage Example**:
-```typescript
-import { getCloudflareContext } from '@opennextjs/cloudflare'
-import type { SubmissionJobMessage } from '@datagum/shared'
+export async function updateSubmissionStatus(
+  id: string,
+  status: SubmissionStatus,
+  error?: string,
+  env?: CloudflareEnv
+): Promise<void>
 
-// In API route
-const { env } = await getCloudflareContext()
+export async function countRecentSubmissionsByIP(
+  userIp: string,
+  hoursAgo: number = 24
+): Promise<number>
 
-const message: SubmissionJobMessage = {
-  type: 'process-submission',
-  payload: {
-    submissionId: submission.id,
-    url: submission.url,
-    userId: userIP,
+export async function updateArticleData(
+  id: string,
+  title: string,
+  content: string,
+  env?: CloudflareEnv
+): Promise<void>
+
+export async function updateGeneratedFAQs(
+  id: string,
+  faqs: Array<{
+    question: string
+    answer: string
+    category: string
+    numbers: string[]
+  }>,
+  env?: CloudflareEnv
+): Promise<void>
+
+export async function updateTestMetrics(
+  id: string,
+  metrics: {
+    isAccessible: boolean
+    inSourcesCount: number
+    inCitationsCount: number
+    totalFaqs: number
   },
-  timestamp: Date.now(),
-  retryCount: 0,
-}
-
-await env.QUEUE.send(message)
+  env?: CloudflareEnv
+): Promise<void>
 ```
 
-**Interactions**:
-- Called by `SubmissionAPIHandler` after submission created
-- Sends message to Cloudflare Queue for processing by `apps/queue-worker`
-- Message consumed by worker defined in Unit 6
-- If enqueue fails, submission remains in 'pending' status
+**Database Access**:
+- Uses `getDb()` for API routes
+- Uses `getDbFromEnv(env)` for background jobs
+- All queries use Drizzle ORM with type safety
+- Automatic timestamp management
+
+**Key Features**:
+- UUID primary keys
+- Timestamp tracking (createdAt, updatedAt, completedAt)
+- JSON storage for FAQs and test metrics
+- Indexed queries for performance
 
 ---
 
-## Component Interactions
+### 6. AnalysisService (Background Processing)
 
-### Submission Flow Sequence
+**Location**: `src/services/analysis.service.ts` (320 lines)
+**Type**: Orchestration Service
+**Responsibility**: Manages complete article analysis workflow in background
 
-1. **User Input**:
-   - User enters URL in `SubmissionFormComponent`
-   - User clicks "Analyze Article" button
+**Public Function**:
 
-2. **Client-Side Validation**:
-   - `SubmissionFormComponent.validateURLFormat()` performs basic check
-   - If invalid, display error and stop
+```typescript
+export async function analyzeArticle(
+  submissionId: string,
+  url: string
+): Promise<AnalysisResult>
+```
 
-3. **API Request**:
-   - `SubmissionFormComponent.handleSubmit()` sends POST to /api/submit
-   - Request includes URL in body
+**Workflow Phases**:
+1. **Scraping** (status: 'scraping'): Fetch and parse article content
+2. **FAQ Generation** (status: 'generating_faqs'): Create 5 FAQ pairs with AI
+3. **Control Test** (status: 'running_control'): Verify article accessibility (Tier 1)
+4. **FAQ Testing** (status: 'testing_faqs'): Test FAQs through OpenAI search (Tier 2 & 3)
+5. **Completion** (status: 'completed' or 'failed')
 
-4. **Server-Side Processing** (`SubmissionAPIHandler`):
-   - Extract user IP from request headers
-   - Parse request body
+**Progressive Updates**:
+- Updates submission status after each phase
+- Saves FAQs immediately after generation
+- Saves control test result before FAQ testing
+- Saves individual FAQ test results as they complete
+- Updates test metrics after all tests complete
 
-5. **URL Validation**:
-   - Call `URLValidator.validateFormat(url)`
-   - Call `URLValidator.validateProtocol(url)`
-   - Call `URLValidator.validateLength(url)`
-   - Call `URLValidator.checkSecurityRestrictions(url)`
-   - If any validation fails, return 400 error
+**Error Handling**:
+- Catches errors at each phase
+- Updates status to 'failed' with error message
+- Continues with fallback FAQs if generation fails
+- Returns detailed error information
 
-6. **Rate Limit Check**:
-   - Call `RateLimiter.checkRateLimit(userIP)`
-   - `RateLimiter` calls `SubmissionRepository.countRecentSubmissionsByIP()`
-   - If count >= 3, throw error and return 429 response
+**Dependencies**:
+- `scrapeArticle()` from scraper.service
+- `generateFAQs()` from faq-generator.service
+- `runControlTest()`, `runSearchTest()` from search-tester.service
+- Database repository functions for status updates
 
-7. **Create Submission Record**:
-   - Call `SubmissionRepository.createSubmission(url, userIP)`
-   - Database generates UUID for submission
-   - Status set to 'pending'
+---
 
-8. **Enqueue Background Job**:
-   - Call `JobQueueService.enqueueSubmission(submissionId)`
-   - Job added to Cloudflare Queue
+### 7. Database Schema
 
-9. **Return Success Response**:
-   - API returns 200 with submission details
-   - Response includes:
-     - `success`: true
-     - `submissionId`: UUID
-     - `url`: submitted URL
-     - `status`: 'pending'
-     - `resultsUrl`: '/results/{submissionId}'
-     - `estimatedTime`: '30-60 seconds'
+**Location**: `src/db/schema.ts` (196 lines)
+**Type**: Drizzle ORM Schema Definition
 
-10. **Client Redirect**:
-    - `SubmissionFormComponent` receives success response
-    - Redirects browser to `/results/{submissionId}`
+**Main Table**: `content_analysis_submissions`
 
-### Error Handling Flow
+```typescript
+export const contentAnalysisSubmissions = pgTable(
+  'content_analysis_submissions',
+  {
+    // Primary key
+    id: uuid('id').defaultRandom().primaryKey(),
 
-**Validation Error (400)**:
-- `URLValidator` throws `ValidationError`
-- `SubmissionAPIHandler` catches and returns 400
-- Error message sent to client: "Please enter a valid URL..."
+    // Submission data
+    url: text('url').notNull(),
+    userIp: varchar('user_ip', { length: 45 }), // IPv4 or IPv6
 
-**Rate Limit Error (429)**:
-- `RateLimiter` throws `RateLimitExceededError`
-- `SubmissionAPIHandler` catches and returns 429
-- Error message sent to client: "Rate limit exceeded. You can analyze 3 articles per day."
+    // Status tracking (7-status workflow)
+    status: varchar('status', { length: 20 }).notNull().default('pending'),
+    // Values: 'pending' | 'scraping' | 'generating_faqs' |
+    //         'running_control' | 'testing_faqs' | 'completed' | 'failed'
 
-**Server Error (500)**:
-- Any uncaught exception in API handler
-- Log error details
-- Return generic message: "An error occurred. Please try again."
+    // Generated FAQs (JSONB array)
+    generatedFaqs: jsonb('generated_faqs').default([]).notNull(),
+
+    // Test metrics (3-tier results)
+    testMetrics: jsonb('test_metrics'),
+
+    // Error handling
+    scrapingError: text('scraping_error'),
+
+    // Scraped article data
+    articleTitle: text('article_title'),
+    articleContent: text('article_content'), // First 5000 chars
+
+    // Timestamps
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => ({
+    // Indexes for query performance
+    statusIdx: index('content_analysis_submissions_status_idx')
+      .on(table.status),
+    userIpIdx: index('content_analysis_submissions_user_ip_idx')
+      .on(table.userIp),
+    createdAtIdx: index('content_analysis_submissions_created_at_idx')
+      .on(table.createdAt),
+  })
+)
+```
+
+**Status Workflow**:
+```
+pending → scraping → generating_faqs → running_control → testing_faqs → completed
+                                                                       ↘ failed
+```
+
+**JSONB Field Structures**:
+
+**generatedFaqs**:
+```typescript
+Array<{
+  question: string      // 40-70 characters
+  answer: string        // 120-180 characters
+  category: 'what-is' | 'how-why' | 'technical' | 'comparative' | 'action'
+  numbers: string[]     // Extracted numbers used in FAQ
+}>
+```
+
+**testMetrics**:
+```typescript
+{
+  isAccessible: boolean        // Tier 1: Control test passed
+  inSourcesCount: number       // Tier 2: Count of FAQs found in sources
+  inCitationsCount: number     // Tier 3: Count of FAQs cited
+  totalFaqs: number           // Total FAQs tested
+}
+```
+
+**Indexes**:
+- `status`: For querying pending/processing submissions
+- `userIp`: For rate limiting queries
+- `createdAt`: For time-based filtering
+
+**Type Exports**:
+```typescript
+export type Submission = typeof contentAnalysisSubmissions.$inferSelect
+export type NewSubmission = typeof contentAnalysisSubmissions.$inferInsert
+export type SubmissionStatus =
+  | 'pending' | 'scraping' | 'generating_faqs'
+  | 'running_control' | 'testing_faqs' | 'completed' | 'failed'
+```
 
 ---
 
 ## Data Flow
 
-### Input Data
-- **Source**: User form input
-- **Format**: String (URL)
-- **Validation**: Client-side + Server-side
-- **Sanitization**: URL encoding, trim whitespace
+### Submission Flow Sequence
 
-### Stored Data
-- **Destination**: PostgreSQL database (Neon)
-- **Table**: `content_analysis_submissions`
-- **ORM**: Drizzle ORM
-- **Initial Fields Populated**:
-  - id (auto-generated UUID)
-  - url (user input)
-  - userIP (extracted from request)
-  - status ('pending')
-  - createdAt (auto-set)
-  - updatedAt (auto-set)
+1. **User Input** (SubmitForm):
+   - User enters URL in form
+   - Client-side validation on input
+   - User clicks "Analyze Article" button
 
-### Output Data
-- **API Response**:
-  ```
-  {
-    success: boolean
-    submissionId: string (UUID)
-    url: string
-    status: 'pending'
-    message: string
-    resultsUrl: string
-    estimatedTime: string
-  }
-  ```
+2. **API Request**:
+   - POST /api/submit with URL in body
+   - Headers include IP address information
+
+3. **Server-Side Processing** (SubmissionAPIHandler):
+   ```
+   Parse request body
+   ↓
+   Sanitize URL (url-validator.service)
+   ↓
+   Validate URL format (url-validator.service)
+   ↓
+   Extract user IP from headers
+   ↓
+   Check rate limit (rate-limiter.service)
+   ↓
+   Create submission record (submission.repository)
+   ↓
+   Get Cloudflare context
+   ↓
+   Return response immediately (200 OK)
+   ↓
+   Start background analysis via ctx.waitUntil()
+   ```
+
+4. **Immediate Response**:
+   ```json
+   {
+     "submissionId": "uuid-here",
+     "url": "https://example.com/article",
+     "status": "pending",
+     "message": "Analysis started",
+     "resultsUrl": "/results/uuid-here"
+   }
+   ```
+
+5. **Client Redirect**:
+   - SubmitForm redirects to `/results/[id]`
+   - Results page begins polling for updates
+
+6. **Background Analysis** (analysis.service):
+   ```
+   Status: scraping
+   → Scrape article content
+   → Save article title and content
+
+   Status: generating_faqs
+   → Generate 5 FAQ pairs with AI
+   → Save FAQs to database
+
+   Status: running_control
+   → Test article accessibility
+   → Save control test result
+
+   Status: testing_faqs (if accessible)
+   → Test each FAQ through OpenAI search
+   → Save individual results progressively
+   → Calculate and save test metrics
+
+   Status: completed
+   → Final metrics saved
+   → completedAt timestamp set
+   ```
+
+7. **Progressive Updates**:
+   - Results page polls `/api/results/[id]` every 3 seconds
+   - Displays status updates and generated FAQs
+   - Shows test results as they complete
+   - Stops polling when status is 'completed' or 'failed'
+
+### Error Handling Flow
+
+**Validation Error (400)**:
+```
+URLValidator.validateURL() throws Error
+↓
+SubmissionAPIHandler catches error
+↓
+Returns 400 Bad Request with error message
+↓
+SubmitForm displays inline error message
+```
+
+**Rate Limit Error (429)**:
+```
+RateLimiter.checkRateLimit() throws RateLimitError
+↓
+SubmissionAPIHandler catches error
+↓
+Returns 429 Too Many Requests with error message
+↓
+SubmitForm displays inline error message
+```
+
+**Background Analysis Error**:
+```
+analyzeArticle() catches error in any phase
+↓
+Updates status to 'failed'
+↓
+Saves error message to scrapingError field
+↓
+Results page displays error state
+```
 
 ---
 
-## Environment Considerations
+## Integration Points
 
-### Cloudflare Workers Constraints
-- Request timeout: 30 seconds max
-- No long-running processes in request handler
-- Database calls must use HTTP-based driver (Neon HTTP)
-- Queue integration via Cloudflare Queue bindings
+### Frontend to Backend
+- **Endpoint**: POST /api/submit
+- **Request**: `{ url: string }`
+- **Response**: Submission details with UUID
+- **Error Codes**: 400 (validation), 429 (rate limit), 500 (server error)
+
+### Background Processing
+- **Trigger**: `ctx.waitUntil(analyzeArticle(...))`
+- **Method**: Cloudflare Workers waitUntil API
+- **Non-blocking**: Response sent before analysis completes
+- **Status Updates**: Progressive database updates
+
+### Database Layer
+- **ORM**: Drizzle ORM
+- **Connection**: Neon PostgreSQL via HTTP driver
+- **Access Pattern**: Direct queries (no connection pooling needed)
+- **Type Safety**: Full TypeScript inference from schema
+
+### Results Polling
+- **Endpoint**: GET /api/results/[id]
+- **Interval**: 3 seconds
+- **Until**: status === 'completed' || status === 'failed'
+- **Data**: Submission, test results, statistics
+
+---
+
+## Type System
+
+### Core Types
+
+```typescript
+// Submission entity
+export type Submission = {
+  id: string
+  url: string
+  userIp: string | null
+  status: SubmissionStatus
+  generatedFaqs: StoredFAQ[]
+  testMetrics: TestMetricsData | null
+  scrapingError: string | null
+  articleTitle: string | null
+  articleContent: string | null
+  createdAt: Date
+  updatedAt: Date
+  completedAt: Date | null
+}
+
+// Status type
+export type SubmissionStatus =
+  | 'pending'
+  | 'scraping'
+  | 'generating_faqs'
+  | 'running_control'
+  | 'testing_faqs'
+  | 'completed'
+  | 'failed'
+
+// FAQ structure
+export interface StoredFAQ {
+  question: string
+  answer: string
+  category: 'what-is' | 'how-why' | 'technical' | 'comparative' | 'action'
+  numbers: string[]
+}
+
+// Test metrics
+export interface TestMetricsData {
+  isAccessible: boolean
+  inSourcesCount: number
+  inCitationsCount: number
+  totalFaqs: number
+}
+
+// API response
+export interface SubmitResponse {
+  submissionId: string
+  url: string
+  status: 'pending'
+  message: string
+  resultsUrl: string
+}
+```
+
+---
+
+## Configuration
+
+### Constants
+
+**Rate Limiting** (rate-limiter.service.ts):
+```typescript
+const MAX_SUBMISSIONS = 3
+const WINDOW_HOURS = 24
+```
+
+**URL Validation** (url-validator.service.ts):
+```typescript
+const MAX_URL_LENGTH = 2000
+const ALLOWED_PROTOCOLS = ['http:', 'https:']
+```
+
+**Background Processing** (analysis.service.ts):
+```typescript
+const DEFAULT_FAQ_COUNT = 5
+```
 
 ### Environment Variables
-- `DATABASE_URL`: PostgreSQL connection string (Neon)
-- `NODE_ENV`: 'development' | 'production' (affects rate limiting)
 
-### Development Mode
-- Rate limiting disabled when `NODE_ENV !== 'production'`
-- Allows unlimited submissions for testing
+```bash
+# Database
+DATABASE_URL=postgresql://user:password@host.neon.tech/db
 
-### Production Mode
-- Rate limiting enforced
-- All validations active
-- Cloudflare Queue integration required
+# OpenAI (for background analysis)
+OPENAI_API_KEY=sk-...
+```
 
 ---
 
-## Security Measures
+## Error Handling
 
-### Input Security
-- URL validation prevents injection attacks
-- Private IP blocking prevents SSRF attacks
-- Length limits prevent DoS via large inputs
-- Protocol restriction to HTTP/HTTPS only
+### Custom Error Classes
 
-### Rate Limiting Security
-- IP-based tracking prevents abuse
-- 24-hour rolling window
-- Prevents resource exhaustion
-- Limits OpenAI API costs
+```typescript
+// Rate Limiting
+export class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RateLimitError'
+  }
+}
+```
 
-### Database Security
-- Parameterized queries via Drizzle ORM (prevents SQL injection)
-- Input sanitization before storage
-- No sensitive data stored (only public URLs)
+**Note**: URL validation errors use generic `Error` class rather than a custom error type.
 
----
+### API Error Responses
 
-## Performance Considerations
+**400 Bad Request**:
+```json
+{
+  "message": "Invalid URL format. Please enter a valid HTTP or HTTPS URL."
+}
+```
 
-### API Response Time
-- Target: < 200ms for submission endpoint
-- Database query for rate check: ~10-20ms
-- Database insert: ~10-20ms
-- Queue enqueue: ~10-30ms
+**429 Too Many Requests**:
+```json
+{
+  "message": "Rate limit exceeded. You can analyze 3 articles per day. Please try again later."
+}
+```
 
-### Caching Strategy
-- No caching needed for submission endpoint
-- Each submission is unique
-- Rate limit check requires fresh data
-
-### Database Indexing
-- Index on `userIP` for fast rate limit queries
-- Index on `createdAt` for window-based filtering
-- Index on `status` for job processing queries
-
----
-
-## Error Scenarios
-
-### Invalid URL Format
-- **Cause**: User enters non-URL text
-- **Detection**: `URLValidator.validateFormat()`
-- **Response**: 400 Bad Request
-- **Message**: "Please enter a valid URL (e.g., https://example.com/article)"
-
-### Rate Limit Exceeded
-- **Cause**: User submits 4th article in 24 hours
-- **Detection**: `RateLimiter.checkRateLimit()`
-- **Response**: 429 Too Many Requests
-- **Message**: "Rate limit exceeded. You can analyze 3 articles per day. Try again in X hours."
-
-### Database Connection Failure
-- **Cause**: Neon database unavailable
-- **Detection**: Exception from Drizzle ORM
-- **Response**: 500 Internal Server Error
-- **Message**: "Service temporarily unavailable. Please try again."
-
-### Queue Enqueue Failure
-- **Cause**: Cloudflare Queue unavailable
-- **Detection**: Exception from queue client
-- **Handling**:
-  - Submission still created with 'pending' status
-  - Return success to user (will retry via cron)
-  - Log error for monitoring
+**500 Internal Server Error**:
+```json
+{
+  "message": "An error occurred. Please try again."
+}
+```
 
 ---
 
-## Testing Considerations
+## Current Status
 
-### Unit Test Scenarios
-- **URLValidator**:
-  - Valid HTTP/HTTPS URLs pass
-  - Invalid URL formats throw error
-  - Localhost URLs throw error
-  - Private IP URLs throw error
-  - URLs > 2000 chars throw error
+### Implementation Progress: 100%
 
-- **RateLimiter**:
-  - 0-2 submissions allow new submission
-  - 3+ submissions throw error
-  - Development mode bypasses limit
-  - 24-hour window calculated correctly
+All components are fully implemented and deployed:
 
-- **SubmissionRepository**:
-  - createSubmission() returns valid UUID
-  - countRecentSubmissionsByIP() counts correctly
-  - Timestamps auto-populate
+✅ **SubmitForm** - Client component with form validation and submission
+✅ **SubmissionAPIHandler** - API route with background processing
+✅ **URLValidatorService** - Full validation and sanitization
+✅ **RateLimiterService** - IP-based rate limiting
+✅ **SubmissionRepository** - Complete database operations
+✅ **AnalysisService** - Background job orchestration
+✅ **Database Schema** - 7-status workflow with JSONB fields
 
-### Integration Test Scenarios
-- End-to-end submission flow succeeds
-- Rate limit enforcement across multiple requests
-- Database transaction rollback on error
-- Queue message format validation
+### Production Deployment
 
-### User Acceptance Test Scenarios
-- User can submit valid article URL
-- User sees error for invalid URL
-- User sees rate limit error on 4th attempt
-- User redirected to results page on success
+- **Platform**: Cloudflare Workers
+- **Framework**: Next.js 15 with OpenNext.js
+- **Database**: Neon PostgreSQL
+- **Status**: Live and operational
 
 ---
 
@@ -499,94 +811,206 @@ await env.QUEUE.send(message)
 
 ### External Services
 - **Neon PostgreSQL**: Database storage
-- **Cloudflare Queue**: Background job processing
 - **Cloudflare Workers**: Runtime environment
+- **OpenAI API**: Background analysis (via analysis.service)
 
-### Frontend Libraries
-- **Next.js 15**: App Router, Server Actions, Client Components
-- **React 19**: Component rendering
-- **Tailwind CSS v4**: Styling with OKLCH color space
-- **shadcn/ui**: UI components with slate color theme
+### Framework Libraries
+- **Next.js 15.4.6**: App Router, API Routes
+- **React 19.1.0**: Client components
+- **Drizzle ORM**: Database queries
+- **@opennextjs/cloudflare**: Cloudflare Workers adapter
 
-### UI Theme Configuration
-- **Base Color**: Slate (OKLCH color space)
-- **Theme Variables**: Defined in `apps/web/src/app/globals.css:46-113`
-- **Dark Mode Support**: Full light/dark theme switching
-- **Form Components**: Styled using semantic color tokens (primary, border, input, ring)
+### UI Libraries
+- **shadcn/ui**: Form components (Input, Button)
+- **Tailwind CSS v4**: Styling
+- **lucide-react**: Icons
 
-### Internal Dependencies
-- None (this is the first unit in the flow)
+### Type Safety
+- **TypeScript**: Strict mode enabled
+- **Zod**: Runtime validation (not used in this unit, but available)
 
-### Next Unit
-- **Unit 6**: Background Job Processing (consumes queued submissions)
+---
+
+## Code Examples
+
+### Submitting an Article (Client)
+
+```typescript
+// In SubmitForm component
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault()
+  setIsSubmitting(true)
+
+  try {
+    const response = await fetch('/api/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      setError(errorData.message)
+      return
+    }
+
+    const data = await response.json()
+    router.push(`/results/${data.submissionId}`)
+  } catch (error) {
+    setError('Failed to submit URL')
+  } finally {
+    setIsSubmitting(false)
+  }
+}
+```
+
+### API Route Handler (Server)
+
+```typescript
+// In src/app/api/submit/route.ts
+export async function POST(request: NextRequest) {
+  try {
+    // Parse and validate
+    const { url } = await request.json()
+    const cleanUrl = sanitizeURL(url)
+    validateURL(cleanUrl)
+
+    // Rate limiting
+    const userIp = extractUserIP(request)
+    if (userIp) {
+      await checkRateLimit(userIp)
+    }
+
+    // Create submission
+    const submission = await createSubmission(cleanUrl, userIp)
+
+    // Background processing
+    const { ctx } = await getCloudflareContext()
+    const response = NextResponse.json({
+      submissionId: submission.id,
+      url: submission.url,
+      status: 'pending',
+      message: 'Analysis started',
+      resultsUrl: `/results/${submission.id}`
+    })
+
+    ctx.waitUntil(
+      analyzeArticle(submission.id, submission.url).catch(console.error)
+    )
+
+    return response
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      return NextResponse.json(
+        { message: error.message },
+        { status: 429 }
+      )
+    }
+    // ... other error handling
+  }
+}
+```
+
+### Database Query (Repository)
+
+```typescript
+// In submission.repository.ts
+export async function createSubmission(
+  url: string,
+  userIp?: string
+): Promise<Submission> {
+  const db = await getDb()
+
+  const [submission] = await db
+    .insert(contentAnalysisSubmissions)
+    .values({
+      url,
+      userIp,
+      status: 'pending'
+    })
+    .returning()
+
+  return submission
+}
+```
 
 ---
 
 ## Changelog
 
-### Version 1.1.2 (2025-10-23) 🐛 BUG FIX
-**IP Address Extraction Enhancement**
+### Version 2.0.0 (2025-10-25) 🎉 COMPLETE REWRITE
+**Comprehensive Implementation Documentation**
 
-**Bug Fix**: Improved client IP address extraction for accurate rate limiting
+This version represents a complete rewrite of the domain model to accurately reflect the current production implementation.
 
-- **FIXED**: `extractUserIP()` in SubmissionAPIHandler (src/app/api/submit/route.ts:97-124)
-  - **Issue**: All IPs were showing as `::1` (localhost) in production database
-  - **Root Cause**: IP extraction priority was incorrect - checked generic headers before Cloudflare-specific header
-  - **Solution**: Reordered IP extraction logic to prioritize Cloudflare's `cf-connecting-ip` header first
-- **UPDATED**: IP Extraction Priority Order:
-  1. `cf-connecting-ip` header (Cloudflare Workers - most reliable on CF infrastructure)
-  2. `x-forwarded-for` header (proxy/load balancer compatibility)
-  3. `x-real-ip` header (alternative proxy header)
-  4. `request.ip` property (Next.js built-in fallback with type-safe casting)
-- **ADDED**: Type-safe access to optional `request.ip` property using intersection type
-  - Cast: `request as NextRequest & { ip?: string }`
-  - Prevents TypeScript errors while maintaining type safety
-- **IMPACT**: Rate limiting now works correctly with real client IPs
-  - Accurate tracking of submissions per IP
-  - Proper enforcement of 3-per-day rate limit
-  - Better abuse prevention
-- **DEPLOYMENT**: Committed (12a6560), pushed to GitHub, deployed to Cloudflare Workers
-- **FILES CHANGED**:
-  - `src/app/api/submit/route.ts` (lines 97-124): Updated `extractUserIP()` function
+**MAJOR CHANGES**:
+- **Architecture Update**: Removed all monorepo/Turborepo references
+  - Changed from `apps/web` to single Next.js application structure
+  - Updated all file paths to actual locations (e.g., `src/components/submit-form.tsx`)
+  - Removed queue-worker references (uses `ctx.waitUntil()` instead)
+- **Component Status**: All components marked as ✅ Fully Implemented
+  - SubmitForm: 94 lines (inline error display, no toasts)
+  - SubmissionAPIHandler: 148 lines (updated with actual implementation)
+  - URLValidatorService: 112 lines (throws generic Error, not custom class)
+  - RateLimiterService: 57 lines (uses MAX_SUBMISSIONS and WINDOW_HOURS constants)
+  - SubmissionRepository: 219 lines (complete database operations)
+  - AnalysisService: 320 lines (orchestrates background processing)
+- **Background Processing**: Updated to use Cloudflare `ctx.waitUntil()`
+  - Removed Cloudflare Queue references
+  - Documented actual implementation with `analyzeArticle()` service
+  - Non-blocking async processing after immediate response
+- **Status Workflow**: Updated to 7-status workflow
+  - Added: scraping, generating_faqs, running_control, testing_faqs
+  - Previous: pending → processing → completed/failed
+  - Current: pending → scraping → generating_faqs → running_control → testing_faqs → completed/failed
+- **Database Schema**: Updated with actual JSONB structures
+  - generatedFaqs: Array of FAQ objects (not just questions)
+  - testMetrics: 3-tier test results object
+  - Removed generatedQuestions field (replaced by generatedFaqs)
+- **Data Flow**: Completely rewritten to reflect progressive updates
+  - Documented polling mechanism (3-second intervals)
+  - Progressive result saving during background processing
+  - Real-time status updates to database
+- **Type System**: Added comprehensive TypeScript types
+  - StoredFAQ interface for FAQ structure
+  - TestMetricsData interface for metrics
+  - SubmitResponse interface for API response
+- **Code Examples**: All examples now use actual production code
+  - Real function signatures from implementation
+  - Actual file paths and line numbers
+  - Working code snippets that match codebase
 
-### Version 1.1.1 (2025-10-21) 🎨 STYLING UPDATE
-**UI Theme Migration: Zinc → Slate Colors**
+**DOCUMENTATION IMPROVEMENTS**:
+- Added Component Overview table with line counts
+- Expanded Component Details with actual implementations
+- Added Integration Points section
+- Added Type System section with all interfaces
+- Added Configuration section with actual constants
+- Updated all code examples to match production code
+- Removed aspirational features and TODOs
 
-**Visual Enhancement**: Updated form UI theme from Zinc to Slate using OKLCH color space
+**FILES DOCUMENTED**:
+- `src/components/submit-form.tsx` (94 lines)
+- `src/app/api/submit/route.ts` (148 lines)
+- `src/services/url-validator.service.ts` (112 lines)
+- `src/services/rate-limiter.service.ts` (57 lines)
+- `src/repositories/submission.repository.ts` (219 lines)
+- `src/services/analysis.service.ts` (320 lines)
+- `src/db/schema.ts` (196 lines)
 
-- **UPDATED**: Global CSS theme variables in `apps/web/src/app/globals.css`
-  - Light mode `:root` (lines 46-79): All color tokens updated to slate palette
-  - Dark mode `.dark` (lines 81-113): All color tokens updated to slate palette
-- **FORM STYLING**: SubmissionFormComponent will use updated semantic tokens:
-  - Input borders: `oklch(0.929 0.013 255.508)` (slate-200 in light mode)
-  - Focus rings: `oklch(0.704 0.04 256.788)` (slate-500 ring color)
-  - Primary button: `oklch(0.208 0.042 265.755)` (slate-900 background)
-  - Button text: `oklch(0.984 0.003 247.858)` (slate-50 foreground)
-- **ADDED**: Frontend Libraries and UI Theme Configuration sections in Dependencies
-  - Documented shadcn/ui usage with slate theme
-  - Specified Tailwind CSS v4 with OKLCH color space
-  - Noted dark mode support for form components
-- **COMPATIBILITY**: No breaking changes to component structure
-  - All form components automatically receive new colors via CSS custom properties
-  - Theme update is purely CSS-level change
-- **VISUAL IMPACT**: Slate provides cooler, more professional blue-gray tones for form inputs and buttons
+**TOTAL IMPLEMENTATION**: 1,146 lines of production code documented
+
+### Version 1.1.2 (2025-10-23)
+- Fixed IP extraction priority for Cloudflare Workers
+- Documented `extractUserIP()` multi-tier extraction logic
+
+### Version 1.1.1 (2025-10-21)
+- Updated UI theme from Zinc to Slate colors
+- Added OKLCH color space documentation
 
 ### Version 1.1.0 (2025-10-21)
-**Turborepo Monorepo Migration**
-
-- **UPDATED**: Migrated to Turborepo monorepo structure (`apps/web`)
-- **UPDATED**: All components now specify location in monorepo
-- **ENHANCED**: JobQueueService updated with actual implementation using `packages/shared` types
-- **ADDED**: Zod schema examples for queue messages (`SubmissionJobMessage`)
-- **ADDED**: Usage example showing `env.QUEUE.send()` integration
-- **UPDATED**: Queue message structure with typed schemas
-- **UPDATED**: Status indicators: JobQueueService ✅, others ⚠️ pending
-- **DOCUMENTED**: File paths for all components in `apps/web/src/`
-- Implementation status: Queue infrastructure ready, other components pending
+- Migrated to Turborepo monorepo structure
+- Added Cloudflare Queue integration
 
 ### Version 1.0.0 (2025-10-20)
 - Initial domain model creation
-- Defined 6 core components
-- Documented submission flow and interactions
-- Added security and performance considerations
-- Mapped to user stories US-1.1, US-1.2, US-1.3
